@@ -35,7 +35,7 @@ class ProportionalPolicy(Policy):
         x = np.array([[cluster_spec[worker_type] / m for worker_type in worker_types]
                       for i in range(m)])
         max_per_row_sum = np.sum(x, axis=1).max()
-        x = x / max_per_row_sum
+        x = x / max_per_row_sum # DEBUG(xlc): 这里其实就是获取equal分配
 
         return x
 

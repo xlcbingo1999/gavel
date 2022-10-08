@@ -49,7 +49,7 @@ def simulate_with_timeout(experiment_id, policy_name,
                                            num_reference_models))
 
     with open(os.path.join(log_dir, lam_str), 'w') as f:
-        with contextlib.redirect_stderr(f), contextlib.redirect_stdout(f):
+        with contextlib.redirect_stderr(f), contextlib.redirect_stdout(f): # DEBUG(xlc): 在调度线程中, 总是将标准输出重定向到文件中, 所以永远看不到
             sched = scheduler.Scheduler(
                             policy,
                             throughputs_file=throughputs_file,
@@ -134,7 +134,7 @@ def main(args):
     if not os.path.isdir(raw_logs_dir):
         os.mkdir(raw_logs_dir)
 
-    jobs_to_complete = set()
+    jobs_to_complete = set() # 这个是对需要监控的任务进行保存
     for i in range(job_range[0], job_range[1]):
         jobs_to_complete.add(JobIdPair(i, None))
 
@@ -195,7 +195,7 @@ def main(args):
                     throughputs = \
                         list(np.linspace(args.throughput_lower_bound,
                                          args.throughput_upper_bound,
-                                         num=args.num_data_points))
+                                         num=args.num_data_points)) # LOG(xlc): 自行生成throughputs
                     if throughputs[0] == 0.0:
                         throughputs = throughputs[1:]
                     for throughput in throughputs:
@@ -290,7 +290,7 @@ if __name__=='__main__':
                         help=('If set, uses the attached cutoff_throughputs '
                               'JSON file in sweep to limit args run'))
     parser.add_argument('--throughputs-file', type=str,
-                        default='simulation_throughputs.json',
+                        default='/home/ubuntu/data/labInDiWu/gavel/scheduler/simulation_throughputs.json',
                         help='Oracle throughputs file')
     parser.add_argument('-m', '--generate-multi-gpu-jobs', action='store_true',
                         default=False,

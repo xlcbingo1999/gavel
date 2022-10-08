@@ -95,7 +95,7 @@ class FIFOPolicy(Policy):
         # because the allocation is reset.
         for scheduled_job_id in sorted(list(self._allocation.keys())):
             worker_type = self._allocation[scheduled_job_id]
-            # Check if job has completed.
+            # Check if job has completed. DEBUG(xlc): why?
             if scheduled_job_id not in throughputs:
                 # If only one job in a pair of co-located jobs completed, then
                 # add the other job back to the queue.
@@ -128,7 +128,7 @@ class FIFOPolicy(Policy):
                 available_worker_types.append(worker_type)
         available_worker_types.sort()
 
-        # Allocate resources to as many jobs as possible.
+        # Allocate resources to as many jobs as possible. DEBUG(xlc): 在这里好像是, 在完成FIFO之后, 还处理了未完全分配的机器
         while len(queue) > 0 and len(available_worker_types) > 0:
             job_id_to_schedule = queue.pop(0)
             scale_factor = scale_factors[job_id_to_schedule]
@@ -140,9 +140,10 @@ class FIFOPolicy(Policy):
                     original_available_worker_types_mapping.append(i)
             if len(available_worker_types_with_scale_factor) == 0:
                 break
-            if self._mode == 'base':
+            if self._mode == 'base': # DEBUG(xlc): 随机给一个worker进行分配, 感觉这里应该是最优者优先才对吧
                 worker_type_idx = self._rng.randrange(
                         len(available_worker_types_with_scale_factor))
+                worker_type = available_worker_types_with_scale_factor[worker_type_idx] # FIX(xlc): 增加了这一行, 
             else:
                 # Find the worker_type with best performance for this job.
                 worker_type = None

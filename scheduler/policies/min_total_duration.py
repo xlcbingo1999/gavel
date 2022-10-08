@@ -40,7 +40,7 @@ class MinTotalDurationPolicyWithPerf(Policy):
 
     def get_allocation_helper(self, throughputs, scale_factors_array, T):
         x = cp.Variable(throughputs.shape)
-        objective = cp.Maximize(1)
+        objective = cp.Maximize(1) # DEBUG(xlc): 这里是非常奇怪的? 为啥最优化一个常数
         # Make sure the allocation can fit in the cluster, and that the
         # currently active jobs can finish in time T.
         constraints = self.get_base_constraints(x, scale_factors_array)
