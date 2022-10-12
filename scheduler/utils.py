@@ -99,7 +99,7 @@ def generate_job(throughputs, reference_worker_type='v100', rng=None,
     assert(run_time > 0)
     assert(scale_factor >= 1 and scale_factor <= 8)
 
-    # Sample the job type.
+    # Sample the job type. # DEBUG(xlc): 直接将scale_factor模拟成分布式任务, 论文开水
     if job_template is None:
         while True:
             job_template = rng.choice(JobTable)
@@ -258,20 +258,27 @@ def read_per_instance_type_spot_prices_azure(directory):
                 i += 1
     return per_instance_type_spot_prices
 
-def read_per_instance_type_spot_prices_json(directory):
+def read_per_instance_type_spot_prices_json(directory, available_clouds): # FIX(xlc): 增加云定制化
+    assert(len(available_clouds) > 0) 
     per_instance_type_spot_prices = {}
-    per_instance_type_spot_prices['aws'] = \
-        read_per_instance_type_spot_prices_aws(os.path.join(directory,
-                                                            'aws/logs'))
-    per_instance_type_spot_prices['azure'] = \
-        read_per_instance_type_spot_prices_azure(os.path.join(directory,
-                                                              'azure/logs'))
-    per_instance_type_spot_prices['gcp'] = {
-        'v100': 0.74,
-        'p100': 0.43,
-        'k80': 0.135
-    }
+    if 'aws' in available_clouds:
+        per_instance_type_spot_prices['aws'] = \
+            read_per_instance_type_spot_prices_aws(os.path.join(directory,
+                                                                'aws/logs'))
+    if 'aws' in available_clouds:
+        per_instance_type_spot_prices['azure'] = \
+            read_per_instance_type_spot_prices_azure(os.path.join(directory,
+                                                                'azure/logs'))
+    if 'gcp' in available_clouds:
+        per_instance_type_spot_prices['gcp'] = {
+            'v100': 0.74,
+            'p100': 0.43,
+            'k80': 0.135
+        }
     return per_instance_type_spot_prices
+
+def format_time_stamp(origin_str, formator):
+    return datetime.strptime(origin_str[::-1].replace(':','',1)[::-1], formator)
 
 def get_latest_price_for_worker_type_aws(worker_type, current_time,
                                          per_instance_type_spot_prices):
@@ -285,7 +292,7 @@ def get_latest_price_for_worker_type_aws(worker_type, current_time,
     elif worker_type == 'k80':
         instance_type = 'p2.xlarge'
 
-    timestamps = [datetime.strptime(x['Timestamp'], '%Y-%m-%dT%H:%M:%S.000Z')
+    timestamps = [format_time_stamp(x['Timestamp'], '%Y-%m-%dT%H:%M:%S%z')
                   for x in per_instance_type_spot_prices[instance_type]]
     timestamps.sort()
 
@@ -295,14 +302,14 @@ def get_latest_price_for_worker_type_aws(worker_type, current_time,
     latest_prices = []
     for availability_zone in set(availability_zones):
         per_instance_type_spot_prices[instance_type].sort(
-            key=lambda x: datetime.strptime(x['Timestamp'],
-                                            '%Y-%m-%dT%H:%M:%S.000Z'))
+            key=lambda x: format_time_stamp(x['Timestamp'],
+                                            '%Y-%m-%dT%H:%M:%S%z'))
         latest_price = None
         for x in per_instance_type_spot_prices[instance_type]:
             if x['AvailabilityZone'] != availability_zone:
                 continue
-            timestamp = (datetime.strptime(x['Timestamp'],
-                                          '%Y-%m-%dT%H:%M:%S.000Z') -
+            timestamp = (format_time_stamp(x['Timestamp'],
+                                          '%Y-%m-%dT%H:%M:%S%z') -
                          timestamps[0]).total_seconds()
             if timestamp > current_time and latest_price is not None:
                 break
@@ -375,7 +382,7 @@ def get_latest_price_for_worker_type(worker_type, current_time,
                     per_instance_type_spot_prices['azure'])
         prices.append(azure_price)
 
-    return min(prices)
+    return min(prices) # TODO(xlc): 感觉这里是有问题的, 每次只从几个云端服务器中找最小值而已? 后面是否有记录每次在哪个云端使用? 这种应该是跨数据中心的模拟把
 
 def parse_job_type_str(job_type):
     if job_type is None:

@@ -59,7 +59,7 @@ class ThroughputNormalizedByCostSumWithPerfSLOs(Policy):
                 instance_costs_array[0, i] = instance_costs[worker_types[i]]
         objective = \
             cp.Maximize(cp.sum(cp.sum(cp.multiply(throughputs /
-                                                  instance_costs_array, x),
+                                                  instance_costs_array, x), # DEBUG(xlc): 很暴力的做法, 获得单位价格的Tput, 贪心求最大值
                                       axis=1)))
 
         # Make sure that a given job is not over-allocated resources.
@@ -70,7 +70,7 @@ class ThroughputNormalizedByCostSumWithPerfSLOs(Policy):
             assert(job_id in num_steps_remaining)
             SLO_constraints.append(
                 cp.sum(cp.multiply(throughputs[i], x[i])) >=
-                    (num_steps_remaining[job_id] / SLOs[job_id])
+                    (num_steps_remaining[job_id] / SLOs[job_id]) # DEBUG(xlc): 这些约束都在保证任务可以在SLO指定的时间内完成
             )
         cvxprob = cp.Problem(objective, constraints + SLO_constraints)
         result = cvxprob.solve(solver=self._solver)

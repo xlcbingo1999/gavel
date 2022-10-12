@@ -5,3 +5,5 @@ scheduler/runtime/rpc_stubs
 *.ipynb_checkpoints
 *.pyc
 logs/
+output_trace/
+type_prices/

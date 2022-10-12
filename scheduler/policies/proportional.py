@@ -19,7 +19,7 @@ class ProportionalPolicy(Policy):
         x_proportional = self._get_allocation(
             throughputs, index,
             cluster_spec)
-        proportional_throughputs = np.sum(np.multiply(throughputs, x_proportional),
+        proportional_throughputs = np.sum(np.multiply(throughputs, x_proportional), # DEBUG(xlc): (T * x) => 对应元素相乘, 对每一行(每个任务)求和
                                           axis=1).reshape((m, 1))
         return proportional_throughputs
 
@@ -33,9 +33,9 @@ class ProportionalPolicy(Policy):
         # \sum_j x[i, j] <= 1 for all i.
         # \sum_i x[i, j] <= 1 for all j.
         x = np.array([[cluster_spec[worker_type] / m for worker_type in worker_types]
-                      for i in range(m)])
+                      for i in range(m)]) # DEBUG(xlc): 每个任务平均分配当前可用的节点
         max_per_row_sum = np.sum(x, axis=1).max()
-        x = x / max_per_row_sum # DEBUG(xlc): 这里其实就是获取equal分配
+        x = x / max_per_row_sum # DEBUG(xlc): 归一化, 对目前所有可用的cluster_spec, 计算归一化的X
 
         return x
 

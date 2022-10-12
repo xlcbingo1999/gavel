@@ -7,7 +7,7 @@ import numpy as np
 from policy import Policy, PolicyWithPacking
 from proportional import ProportionalPolicy
 
-class MaxMinFairnessPolicy(Policy):
+class MaxMinFairnessPolicy(Policy): # DEBUG(xlc): 这里是不带数据集中的Throughput的值
 
     def __init__(self, solver):
         self._name = 'MaxMinFairness'
@@ -25,7 +25,7 @@ class MaxMinFairnessPolicy(Policy):
         for job_id in unflattened_throughputs:
             new_unflattened_throughputs[job_id] = {}
             for worker_type in unflattened_throughputs[job_id]:
-                 new_unflattened_throughputs[job_id][worker_type] = 1.0 # DEBUG(xlc): 默认都给1.0? 
+                 new_unflattened_throughputs[job_id][worker_type] = 1.0
 
         return self._max_min_fairness_perf_policy.get_allocation(
             new_unflattened_throughputs, scale_factors, priority_weights,
@@ -44,7 +44,7 @@ class MaxMinFairnessPolicyWithPerf(Policy):
         throughputs, index = super().flatten(unflattened_throughputs,
                                              cluster_spec)
         if throughputs is None: return None
-        (m, n) = throughputs.shape
+        (m, n) = throughputs.shape # (m = job_nums, n = worker_type_nums)
         (job_ids, worker_types) = index
 
         # Row i of scale_factors_array is the scale_factor of job i
@@ -69,7 +69,7 @@ class MaxMinFairnessPolicyWithPerf(Policy):
         objective = cp.Maximize(
             cp.min(cp.sum(cp.multiply(
                 np.multiply(throughputs * priority_weights.reshape((m, 1)),
-                            scale_factors_array), x), axis=1)))
+                            scale_factors_array), x), axis=1))) # DEBUG(xlc): 实际上并没有进行加权处理
         # Make sure that the allocation can fit in the cluster.
         constraints = self.get_base_constraints(x, scale_factors_array)
         cvxprob = cp.Problem(objective, constraints)
@@ -277,9 +277,9 @@ class MaxMinFairnessPolicyWithPacking(PolicyWithPacking):
             self.flatten(d=unflattened_throughputs,
                          cluster_spec=cluster_spec,
                          priority_weights=unflattened_priority_weights)
-        if all_throughputs is None or len(all_throughputs) == 0: return None
-        (m, n) = all_throughputs[0].shape
-        (job_ids, single_job_ids, worker_types, relevant_combinations) = index
+        if all_throughputs is None or len(all_throughputs) == 0: return None # DEBUG(xlc): (len(single_job_ids), len(job_ids), len(worker_types))
+        (m, n) = all_throughputs[0].shape # DEBUG(xlc): m = len(job_ids) n = len(worker_types)
+        (job_ids, single_job_ids, worker_types, relevant_combinations) = index # DEBUG(xlc): (合并任务list, 单任务list, worker_types, 单任务与合并任务关系)
         x = cp.Variable((m, n))
 
         # Row i of scale_factors_array is the scale_factor of job
@@ -315,14 +315,14 @@ class MaxMinFairnessPolicyWithPacking(PolicyWithPacking):
                     scale_factors_array[indexes]) / proportional_throughput
             tputs.append(curr_throughputs)
 
-        tputs = sp.csc_matrix(np.vstack(tputs))
+        tputs = sp.csc_matrix(np.vstack(tputs)) # DEBUG(xlc): 压缩稀疏列矩阵
         indexed_vars = x[idx]
         realized_tputs = cp.multiply(tputs, indexed_vars)
         # reshape so that the sum of each row gives the throughput
         realized_tputs_mat = cp.reshape(realized_tputs,
                 (len(all_throughputs),
                 int(np.prod(realized_tputs.shape) / len(all_throughputs))),
-                order='C')
+                order='C') # TODO(xlc): 没看懂, 这里都比较复杂, 这里还出现了BUG! 使用packed进行计算的最后一步, 在这里出现了bug, 导致整个任务宕机
 
         objective_fn = cp.min(cp.sum(realized_tputs_mat, axis=1))
 

@@ -1,0 +1,14 @@
+python scheduler/scripts/drivers/simulate_scheduler_with_generated_jobs.py \
+        --window-start 0 \
+        --window-end 1 \
+        --policy max_sum_throughput_normalized_by_cost_perf_SLOs \
+        --seed 0 \
+        --lam 28800.0 \
+        --cluster_spec 16:16:16 \
+        --generate-multi-gpu-jobs \
+        --generate-multi-priority-jobs \
+        --verbose \
+        --assign_SLOs \
+        --throughputs_file /home/ubuntu/data/labInDiWu/gavel/scheduler/simulation_throughputs.json \
+        --per_instance_type_prices_dir /home/ubuntu/data/labInDiWu/gavel/type_prices \
+        --available_clouds aws gcp

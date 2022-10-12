@@ -102,7 +102,7 @@ class PolicyWithPacking(Policy):
             [cluster_spec[worker_type] for worker_type in worker_types]
 
         # Stores which indexes in job_ids are relevant for each single job ID.
-        relevant_combinations = {}
+        relevant_combinations = {} # DEBUG(xlc): 注意这里面相关联的可能是联合index, 比如2代表(0, 1)
         single_job_ids = set()
         sorted_single_job_ids = []
         for i, job_id in enumerate(job_ids):
@@ -134,7 +134,7 @@ class PolicyWithPacking(Policy):
                     # throughput should be 0.
                     # Otherwise, use the right throughput from the input dict.
                     if job_id in single_job_ids:
-                        if job_id == single_job_id:
+                        if job_id == single_job_id: # DEBUG(xlc): 表示单任务
                             all_m[i][j][k] = d[job_id][worker_type]
                     else:
                         if single_job_id.overlaps_with(job_id):

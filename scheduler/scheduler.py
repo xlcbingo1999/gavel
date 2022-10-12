@@ -59,7 +59,7 @@ class Scheduler:
     def __init__(self, policy, simulate=False, throughputs_file=None,
                  seed=0, time_per_iteration=360, profiling_percentage=1.0,
                  num_reference_models=len(JobTable),
-                 per_instance_type_prices_dir=None,
+                 per_instance_type_prices_dir=None, # DEBUG(xlc): continuous测试中这个参数默认不传...
                  available_clouds=[],
                  assign_SLOs=False,
                  enable_global_queue=False,
@@ -245,7 +245,7 @@ class Scheduler:
         if per_instance_type_prices_dir is not None:
             self._per_instance_type_spot_prices = \
                 utils.read_per_instance_type_spot_prices_json(
-                    per_instance_type_prices_dir)
+                    per_instance_type_prices_dir, available_clouds) # FIX(xlc): 增加定制化
             self._per_worker_type_prices = {}
             self._available_clouds = set(available_clouds)
             if assign_SLOs:
@@ -419,17 +419,17 @@ class Scheduler:
              job_type_key: A tuple of (model, scale_factor).
         """
         self._job_type_throughputs[job_type_key] = {}
-        other_job_type_keys = list(self._job_type_throughputs.keys())
+        other_job_type_keys = list(self._job_type_throughputs.keys()) # DEBUG(xlc): 获取当前存在的任务type
         for worker_type in self._worker_types:
             oracle_throughputs = self._oracle_throughputs[worker_type]
             self._job_type_throughputs[job_type_key][worker_type] = {}
             self._job_type_throughputs[job_type_key][worker_type][None] = \
                 oracle_throughputs[job_type_key]['null']
-            if self._job_packing:
+            if self._job_packing: # DEBUG(xlc): 在读取throughput的时候判断是否有_job_packing并读取, 问题: 目前看到的都是同类型的? 为什么没有不同类型的
                 for other_job_type_key in other_job_type_keys:
                     # Don't store throughputs for jobs with different scale
                     # factors.
-                    if other_job_type_key[1] != job_type_key[1]:
+                    if other_job_type_key[1] != job_type_key[1]: # DEBUG(xlc): 这里确保scale factors相等
                         continue
                     colocated_throughputs = \
                         oracle_throughputs[job_type_key][other_job_type_key]
@@ -482,7 +482,7 @@ class Scheduler:
                     self._throughput_estimator.match_job_to_reference_job(job_type_key)
             if job_type_key not in self._job_type_throughputs:
                 self._job_type_to_job_ids[job_type_key] = set()
-                self._read_throughputs_for_job_type(job_type_key)
+                self._read_throughputs_for_job_type(job_type_key) # DEBUG(xlc): 这里会根据packing的情况拿
             self._job_type_to_job_ids[job_type_key].add(job_id)
             self._num_failures_per_job[job_id] = 0
             self._total_steps_run[job_id] = 0
@@ -495,11 +495,11 @@ class Scheduler:
             for worker_type in self._worker_types:
                 self._steps_run_so_far[job_id][worker_type] = 0
                 self._set_initial_throughput(job_id, worker_type) # DEBUG(xlc): 从Oracle的throughput数据中获取现有的Trace
-                if self._job_packing:
+                if self._job_packing: # DEBUG(xlc): 从Oracle的throughput数据中获取packing的Trace, 完成对
                     self._populate_job_combination_metadata(job_id,
                                                             worker_type)
                 self._job_time_so_far[job_id][worker_type] = \
-                        (self._time_per_iteration / 2.0)
+                        (self._time_per_iteration / 2.0) # DEBUG(xlc): 一个任务被提交了之后, 默认就给了self._time_per_iteration / 2.0的执行时间
             self._per_job_start_timestamps[job_id] = current_timestamp
             self._per_job_latest_timestamps[job_id] = None
             self._add_to_priorities(job_id)
@@ -540,7 +540,7 @@ class Scheduler:
         job_type = self._jobs[job_id].job_type
         scale_factor = self._jobs[job_id].scale_factor
         job_type_key = (job_type, scale_factor)
-        del self._jobs[job_id]
+        del self._jobs[job_id] # DEBUG(xlc): 这一步会将实例也删除，保证了后续任务查询self._jobs
         if self._num_failures_per_job[job_id] >= MAX_FAILED_ATTEMPTS:
             self._job_completion_times[job_id] = None
         else:
@@ -592,7 +592,7 @@ class Scheduler:
         # TODO: Add a flag to choose whether to update allocation here.
         # NOTE: Scheduler cv will be notified by calling function.
         self._need_to_update_allocation = True
-        self._logger.info('Remaining active jobs: {0}'.format(len(self._jobs)))
+        self._logger.info('Job {0} total finished! Remaining active jobs: {1}'.format(job_id, len(self._jobs)))
 
     def num_workers(self):
         """Returns the number of workers the scheduler is connected to."""
@@ -734,18 +734,18 @@ class Scheduler:
 
         if job_id in worker_assignments:
             worker_ids_for_job = list(worker_assignments[job_id])
-        else:
+        else: # DEBUG(xlc): 当任务在之前还没有被分配的时候
             worker_ids_for_job = []
-        while (len(worker_ids_for_job) < scale_factor and
-               server_id_ptr < len(worker_ids)):
-            if len(worker_ids[server_id_ptr]) == 0:
+        while (len(worker_ids_for_job) < scale_factor and # DEBUG(xlc): worker_ids_for_job最初是空的, 不断累积, 为这个任务分配直到满足scale_factor需求
+               server_id_ptr < len(worker_ids)): # DEBUG(xlc): 探针指示的是下一个可以被分配的大小, 探针的值要小于worker数量, worker_id从小到大进行分配
+            if len(worker_ids[server_id_ptr]) == 0: # DEBUG(xlc): 如果探针指示的位置没有可用的worker, 继续向下探
                 server_id_ptr += 1
                 continue
             worker_id_to_assign = worker_ids[server_id_ptr][0]
             if worker_id_to_assign not in assigned_worker_ids:
                 worker_ids_for_job.append(worker_id_to_assign)
                 assigned_worker_ids.add(worker_id_to_assign)
-            worker_ids[server_id_ptr].pop(0)
+            worker_ids[server_id_ptr].pop(0) # DEBUG(xlc): 每当一个worker被分配, worker_ids弹出
 
         if len(worker_ids_for_job) != scale_factor:
             raise RuntimeError(
@@ -789,7 +789,7 @@ class Scheduler:
             per_worker_type_entries = []
             for job_id in self._priorities[worker_type]:
                 allocation = 0.0
-                if self._allocation is not None and job_id in self._allocation: # DEBUG(xlc): 通过priority的计算获取实际的allocation方式
+                if self._allocation is not None and job_id in self._allocation: # DEBUG(xlc): 将之前计算得到的算法_allocation结果也传入供使用
                     allocation = self._allocation[job_id][worker_type]
                 per_worker_type_entries.append(
                         (job_id, worker_type,
@@ -799,7 +799,7 @@ class Scheduler:
             if not self._enable_global_queue:
                 sorted_job_queue += sorted(per_worker_type_entries,
                                            key=lambda x: (x[2], x[3], x[4]),
-                                           reverse=True)
+                                           reverse=True) # DEBUG(xlc): 这里是根据外部传入的worker_type顺序进行队列填入, 由外部控制这个调度优先级
             else:
                 sorted_job_queue += per_worker_type_entries
 
@@ -807,12 +807,12 @@ class Scheduler:
             sorted_job_queue.sort(key=lambda x: (x[2], x[3], x[4]),
                                   reverse=True)
 
-        for job_id, worker_type, *_ in sorted_job_queue:
+        for job_id, worker_type, *_ in sorted_job_queue: # DEBUG(xlc): 直接根据上面排好的优先级进行队列调度和放置
             if num_workers_left[worker_type] == 0:
                 continue
 
             # Don't schedule jobs that have already been scheduled.
-            if ((not job_id.is_pair() and job_id in already_scheduled_jobs) or
+            if ((not job_id.is_pair() and job_id in already_scheduled_jobs) or # DEBUG(xlc): 一个任务可能会和多种worker_type同时出现在调度队列中, 删除已调度任务即可
                 (job_id.is_pair() and
                  (job_id.singletons()[0] in already_scheduled_jobs or
                   job_id.singletons()[1] in already_scheduled_jobs))):
@@ -845,10 +845,10 @@ class Scheduler:
                 scale_factor = self._jobs[job_id].scale_factor
             if scale_factor > num_workers_left[worker_type]:
                 continue
-            num_workers_left[worker_type] -= scale_factor
+            num_workers_left[worker_type] -= scale_factor # DEBUG(xlc): 对于两个任务共用一个worker的情况, 只会减少一个任务的scale_factor, 而且两个scale_factor是同样的
 
             for single_job_id in job_id.singletons():
-                already_scheduled_jobs.add(single_job_id)
+                already_scheduled_jobs.add(single_job_id) # DEBUG(xlc): 合并任务在一轮中不会命中两次
             scheduled_jobs[worker_type].append((job_id, scale_factor))
 
         return scheduled_jobs
@@ -877,14 +877,14 @@ class Scheduler:
             worker_types.pop(i)
 
         if ('Perf' not in self._policy.name and
-            'Packing' not in self._policy.name):
-            self._worker_type_shuffler.shuffle(worker_types) # DEBUG(xlc): 这一步是对后面的worker_type遍历做出限制
+            'Packing' not in self._policy.name): 
+            self._worker_type_shuffler.shuffle(worker_types) # DEBUG(xlc): 这一步是对后面的worker_type遍历做出限制, Packing和Pref不做处理, 可能是想要让更快的GPU能用上
 
         new_worker_assignments = collections.OrderedDict()
         scheduled_jobs = self._schedule_jobs_on_workers_helper(worker_types) # DEBUG(xlc): 完成调度的计算，返回调度的结果 {worker_types: [(job_id, scale_factor)]}
 
         worker_state = {}
-        for worker_type in worker_types:
+        for worker_type in worker_types: # DEBUG(xlc): 仅仅在单个worker_type内部进行scale_factors的排序, 避免出现太多的小碎片
             # Sort jobs by the scale factor: want to assign jobs from largest
             # to smallest to minimize fragmentation.
             scheduled_jobs[worker_type].sort(key=lambda x: x[1], reverse=True) # DEBUG(xlc): 对当前worker_type下所有任务，根据scale_factors从大到小排序
@@ -893,7 +893,7 @@ class Scheduler:
             worker_state[worker_type] = {
                 'worker_ids': worker_ids,
                 'assigned_worker_ids': set(),
-                'server_id_ptr': 0,
+                'server_id_ptr': 0, # DEBUG(xlc): 这个项是记录当前work_type中的服务id指针, 比如2个V100 GPU, 可能的取值是0, 1
             }
 
         prev_worker_types = {}
@@ -911,9 +911,9 @@ class Scheduler:
             # Assign workers in order of decreasing scale factor to prioritize
             # locality for multi-GPU jobs.
             for current_scale_factor in scale_factors:
-                # Try to keep jobs on current workers if possible.
+                # Try to keep jobs on current workers if possible. # DEBUG(xlc): 如果没有先前分配, new_worker_assignments的新job项必然为空
                 for (job_id, scale_factor) in scheduled_jobs[worker_type]: # DEBUG(xlc): 必须有确定分配才会执行, 否则直接退回
-                    if scale_factor != current_scale_factor: # DEBUG(xlc): 因为存在两个合理的排序, 所以可以保证这一步?
+                    if scale_factor != current_scale_factor: # DEBUG(xlc): 因为存在两个一模一样的排序, 所以可以保证这一步必然不成立
                         continue
                     if (job_id in prev_worker_types and # DEBUG(xlc): 先前为job_id分配过worker
                         prev_worker_types[job_id] == worker_type): # DEBUG(xlc): 当之前分配的worker和当前判定的worker一致的时候
@@ -922,7 +922,7 @@ class Scheduler:
                         assert(isinstance(prev_worker_ids, tuple))
                         extend_placement = True # DEBUG(xlc): 下面的逻辑感觉是在完成判断是否增加了新的worker, 如果是, 增加上去
                         for prev_worker_id in prev_worker_ids:
-                            if prev_worker_id in assigned_worker_ids:
+                            if prev_worker_id in assigned_worker_ids: # DEBUG(xlc): 已经在assigned_worker_ids的话, 不再延续placement
                                 extend_placement = False
                                 break
                         if extend_placement:
@@ -932,14 +932,14 @@ class Scheduler:
 
                 # Assign workers for remaining jobs.
                 for (job_id, scale_factor) in scheduled_jobs[worker_type]:
-                    if scale_factor != current_scale_factor:
+                    if scale_factor != current_scale_factor: # DEBUG(xlc): 因为存在两个一模一样的排序, 所以可以保证这一步必然不成立
                         continue
                     elif job_id not in self._allocation:
                         continue
                     self._assign_workers_to_job(job_id, scale_factor,
                                                 worker_type,
                                                 per_worker_state,
-                                                new_worker_assignments) # DEBUG(xlc): 实际完成job到worker的调度, 同时更改running_jobs的状态
+                                                new_worker_assignments) # DEBUG(xlc): 每单步都要执行, 实际完成job到worker的调度, 同时更改running_jobs的状态
 
         # Verify the assignment.
         num_assignments = {}
@@ -968,9 +968,9 @@ class Scheduler:
                     job_types.append((self._jobs[x].job_type, scale_factor))
                 colocated_throughputs = \
                     oracle_throughputs[job_types[0]][job_types[1]]
-                single_job_throughput = colocated_throughputs[index]
+                single_job_throughput = colocated_throughputs[index] # DEBUG(xlc): 重新抓取逻辑
                 num_steps = int(single_job_throughput *
-                                self._time_per_iteration)
+                                self._time_per_iteration) # DEBUG(xlc): 吞吐量(step/s) * 当前一个round的time(s)
             else:
                 # NOTE: Assumes oracle throughputs for single jobs.
                 num_steps = int(self._throughputs[job_id][worker_type] *
@@ -995,8 +995,8 @@ class Scheduler:
     def _get_job_steps_and_finish_times(self, job_id, worker_type):
         """Returns the number of steps to execute and and latest finish time(s)
            for a job or job pair."""
-        max_finish_time = self.get_current_timestamp()
-        all_num_steps = []
+        max_finish_time = self.get_current_timestamp() # DEBUG(xlc): 如果是合并jobs, 则返回最大的finish_time
+        all_num_steps = [] # DEBUG(xlc): 如果是合并jobs, 则返回一个list
         single_job_ids = job_id.singletons()
         if job_id.is_pair() and self._estimate_throughputs and self._simulate: # DEBUG(xlc): 重新计算共享任务的吞吐量
             oracle_throughputs = self._oracle_throughputs[worker_type]
@@ -1294,7 +1294,7 @@ class Scheduler:
                 if next_job_arrival_time is not None:
                     self._current_timestamp = next_job_arrival_time
 
-            # Update per-instance type prices. # DEBUG(xlc): 处理
+            # Update per-instance type prices. # DEBUG(xlc): 更新worker的价格, 根据几种云平台价格的最低值设置, 如果改变了价格, 需要重新计算allocation方式
             if self._per_worker_type_prices is not None:
                 self._update_per_worker_type_prices()
 
@@ -1315,14 +1315,14 @@ class Scheduler:
                     scale_factor =\
                         self._jobs[job_id.singletons()[0]].scale_factor
                     total_steps = [0] * len(job_id.singletons())
-                    for i, worker_id in enumerate(worker_ids):
+                    for i, worker_id in enumerate(worker_ids): # DEBUG(xlc): 每个worker会平均分配1/scale_factor的时间
                         if i == len(worker_ids) - 1:
                             # For the last worker, assign all remaining
-                            # steps to account for any rounding error.
+                            # steps to account for any rounding error. # DEBUG(xlc): 在最后一个
                             all_num_steps_ = []
                             for j in range(len(all_num_steps)):
                                 remaining_steps = \
-                                    all_num_steps[j] - total_steps[j]
+                                    all_num_steps[j] - total_steps[j] # DEBUG(xlc): 将剩下的step分配给最后一轮
                                 all_num_steps_.append(remaining_steps)
                         else:
                             # Each worker gets an equal fraction of the total
@@ -1332,8 +1332,8 @@ class Scheduler:
                         for j in range(len(all_num_steps_)):
                             total_steps[j] += all_num_steps_[j]
                         self._done_callback(job_id, worker_id,
-                                            all_num_steps_,
-                                            all_execution_times)
+                                            all_num_steps_, # DEBUG(xlc): 本轮执行的step数量, 这个就是最后用于判断一个任务是否完成的关键, 统一的计算
+                                            all_execution_times) # DEBUG(xlc): 本轮执行的时间
                     for single_job_id in job_id.singletons():
                         if single_job_id not in self._jobs:
                             if from_trace or num_total_jobs is not None:
@@ -1376,7 +1376,7 @@ class Scheduler:
                             SLO_rng=SLO_generator)
                     num_jobs_generated += 1
                     self._all_jobs.append((next_job_arrival_time, job))
-                    job_id = self.add_job(job, timestamp=next_job_arrival_time) # DEBUG(xlc): 在这一步对Throughput进行了初始化处理
+                    job_id = self.add_job(job, timestamp=next_job_arrival_time) # DEBUG(xlc): 在这一步对Throughput进行了初始化处理, 在这里对任务的SLO设置一个最晚的期望值?
                     if (jobs_to_complete is not None and
                         job_id == min(jobs_to_complete)):
                         window_start_time = next_job_arrival_time
@@ -1497,14 +1497,14 @@ class Scheduler:
                 checkpoint_complete = True
 
         if window_start_time is not None:
-            print('Window start time: %f' % (window_start_time))
+            self._logger.info('Window start time: %f' % (window_start_time))
             window_duration = self._current_timestamp - window_start_time
-            print('Window duration: '
+            self._logger.info('Window duration: '
                   '%.3f seconds (%.2f hours)' % (window_duration,
                                                  window_duration / 3600.0))
         if output_trace_file is not None:
             output_trace_file.close()
-        print('Total duration: %.3f seconds '
+        self._logger.info('Total duration: %.3f seconds '
               '(%.2f hours)' % (self._current_timestamp,
                                 self._current_timestamp / 3600.0))
 
@@ -1932,15 +1932,16 @@ class Scheduler:
         if self._SLOs is not None:
             for job_id in self._SLOs:
                 SLO = self._SLOs[job_id]
-                completion_time = self._job_completion_times[job_id]
-                if verbose:
-                    print('%s: completion_time=%f, SLO=%f, '
-                          'completion_time / SLO = %f' % (job_id,
-                                                          completion_time,
-                                                          SLO,
-                                                          completion_time / SLO))
-                if completion_time > SLO:
-                    num_SLO_violations += 1
+                if job_id in self._job_completion_times:
+                    completion_time = self._job_completion_times[job_id] # FIX(xlc): 很多任务是不会完成的, 因此原写法容易出现bug
+                    if verbose:
+                        print('%s: completion_time=%f, SLO=%f, '
+                            'completion_time / SLO = %f' % (job_id,
+                                                            completion_time,
+                                                            SLO,
+                                                            completion_time / SLO))
+                    if completion_time > SLO:
+                        num_SLO_violations += 1
         if verbose:
             print('Number of SLO violations: %d' % (num_SLO_violations))
         return num_SLO_violations
@@ -2036,18 +2037,18 @@ class Scheduler:
            Debug method used for printing the deficit of each job on each
            worker type.
         """
-        print('')
-        print('=' * 80)
-        print('Deficits\t(Current_time: %f)' % (self.get_current_timestamp()))
-        print('-' * 80)
+        self._logger.debug('')
+        self._logger.debug('=' * 80)
+        self._logger.debug('Deficits\t(Current_time: %f)' % (self.get_current_timestamp()))
+        self._logger.debug('-' * 80)
         for job_id in sorted(list(self._jobs.keys())):
             deficit_str = 'Job ID %s:' % (job_id)
             for worker_type in sorted(self._worker_types):
                 deficit = self._deficits[worker_type][job_id]
                 deficit_str += ' [%s: %f]' % (worker_type, deficit)
-            print(deficit_str)
-        print('=' * 80)
-        print('')
+            self._logger.debug(deficit_str)
+        self._logger.debug('=' * 80)
+        self._logger.debug('')
 
     def _get_allocation_state(self):
         """Prepare all relevant scheduler state for computing the allocation."""
@@ -2203,14 +2204,14 @@ class Scheduler:
             assert(job.scale_factor == 1)
             reference_throughputs = self._reference_throughputs[worker_type]
         for other_job_id in self._jobs:
-            if other_job_id != job_id:
+            if other_job_id != job_id: # DEBUG(xlc): 必须不等于当前job_id才能执行该操作
                 other_job = self._jobs[other_job_id]
                 if job.scale_factor != other_job.scale_factor:
                     continue
                 other_job_type_key = (other_job.job_type, other_job.scale_factor)
                 job_type_keys = [job_type_key, other_job_type_key]
                 merged_job_id = \
-                        job_id_pair.JobIdPair(job_id[0], other_job_id[0])
+                        job_id_pair.JobIdPair(job_id[0], other_job_id[0]) # DEBUG(xlc): 第一次出现了合并JobIdPair
                 if merged_job_id not in self._throughputs:
                     self._throughputs[merged_job_id] = {}
                     self._job_time_so_far[merged_job_id] = {}
@@ -2272,10 +2273,10 @@ class Scheduler:
         current_time = self.get_current_timestamp()
         elapsed_time_since_last_reset = current_time - self._last_reset_time
         for worker_type in self._worker_types:
-            self._worker_time_so_far[worker_type] = 0.0
+            self._worker_time_so_far[worker_type] = 0.0 # DEBUG(xlc): 这个量只会保存从上次reset到现在的执行时间
             for job_id in self._job_time_so_far:
                 # _job_time_so_far keeps track of how long job_id has run on
-                # worker_type since the last reset event.
+                # worker_type since the last reset event. # DEBUG(xlc): 这个量只保存了从上次reset到现在的时间
                 if worker_type not in self._job_time_so_far[job_id]:
                     time_received = 0.0
                 else:
@@ -2294,7 +2295,7 @@ class Scheduler:
                             elapsed_time_since_last_reset
 
                 # deficit is now just the difference between the time job_id
-                # should have received, and how much it actually received.
+                # should have received, and how much it actually received. # DEBUG(xlc): 这个量是记录理想情况下应该分配的时间和实际分配的时间的差值, 少补多减
                 deficit = time_should_have_received - time_received
                 if job_id not in self._deficits[worker_type]:
                     self._deficits[worker_type][job_id] = 0.0
@@ -2305,7 +2306,7 @@ class Scheduler:
                 self._worker_time_so_far[worker_type] += \
                         self._job_time_so_far[job_id][worker_type]
         # Prints deficits every time allocation is reset.
-        # self._print_deficits()
+        self._print_deficits()
         self._last_reset_time = current_time
         self._allocation_changed_since_last_time_reset = False
 
@@ -2369,18 +2370,18 @@ class Scheduler:
         current_time = self.get_current_timestamp()
         time_since_last_reset = current_time - self._last_reset_time
         reset_interval_elapsed = time_since_last_reset >= \
-            self._minimum_time_between_allocation_resets
+            self._minimum_time_between_allocation_resets # DEBUG(xlc): 提供一个最小时间, 超过这段时间就要强制reset一次
         need_to_reset_time_run_so_far = \
             reset_interval_elapsed or self._last_reset_time == 0
         if self._simulate:
             need_to_reset_time_run_so_far = \
                 (self._need_to_update_allocation and
-                 need_to_reset_time_run_so_far) # DEBUG(xlc): 确定是否开启一个新的公平分配
+                 need_to_reset_time_run_so_far)
         else:
             need_to_reset_time_run_so_far = \
                 (self._allocation_changed_since_last_time_reset and
                  need_to_reset_time_run_so_far)
-        if need_to_reset_time_run_so_far:
+        if need_to_reset_time_run_so_far: # DEBUG(xlc): 只有在需要重新计算allocation分配的时候才会重新走一遍调度算法 1. 任务完成; 2. 任务加入
             self._reset_time_run_so_far()
             # In simulation mode, wait for allocation computation to complete
             # before proceeding.
@@ -2419,7 +2420,7 @@ class Scheduler:
         # Stores the fraction of time spent running a job for each worker.
         fractions = {}
 
-        # Compute priorities.
+        # Compute priorities. # DEBUG(xlc): 这个优先级的计算包括两部分: 1. 根据任务对GPU的使用时间确定一个分数; 2. 当前的allocation结果 / GPU使用时间分数, 得到最终的优先级  
         for worker_type in self._worker_types:
             fractions[worker_type] = {}
             worker_time_so_far = self._worker_time_so_far[worker_type]
@@ -2432,13 +2433,13 @@ class Scheduler:
                     fraction = 0.0
                 else:
                     job_time_so_far = \
-                        self._job_time_so_far[job_id][worker_type]
+                        self._job_time_so_far[job_id][worker_type] # DEBUG(xlc): 获取job在当前worker_type下的执行时间
                     if not self._simulate:
                         if (job_id in elapsed_job_time and
                             worker_type in elapsed_job_time[job_id]):
                             job_time_so_far += \
                                 elapsed_job_time[job_id][worker_type]
-                    fraction = job_time_so_far / worker_time_so_far
+                    fraction = job_time_so_far / worker_time_so_far # DEBUG(xlc): 直接获取对于当前job使用worker_type的比例
                 fractions[worker_type][job_id] = fraction
             for job_id in self._priorities[worker_type]:
                 # Don't use inf so 2*new_priority > new_priority.
@@ -2448,7 +2449,7 @@ class Scheduler:
                 if job_id not in self._allocation:
                     self._priorities[worker_type][job_id] = 0.0
                 else:
-                    new_priority = self._allocation[job_id][worker_type] * 1e9
+                    new_priority = self._allocation[job_id][worker_type] * 1e9 # DEBUG(xlc): 直接将非常大的priority赋上去? 可能是对份额为0的任务的优先处理?
                     if self._allocation[job_id][worker_type] == 0.0:
                         assert(new_priority == 0)
                     elif ((job_id.is_pair() and
@@ -2882,7 +2883,7 @@ class Scheduler:
             all_iterator_logs: List of the GavelIterator logs for each job.
         """
 
-        to_remove = []
+        to_remove = [] # DEBUG(xlc): 用于存放真正完成的任务
         with self._scheduler_lock:
             # If current round is r, job might have been dispatched for
             # round r+1 and completed before round r is done. If so,
@@ -2921,7 +2922,7 @@ class Scheduler:
                                                       all_num_steps,
                                                       all_execution_times,
                                                       all_iterator_logs))
-            if len(self._in_progress_updates[job_id]) < scale_factor:
+            if len(self._in_progress_updates[job_id]) < scale_factor: # DEBUG(xlc): 如果是多worker任务, 在这里会提前结束
                 return
             else:
                 # Sort updates in order of increasing worker ID.
@@ -3026,7 +3027,7 @@ class Scheduler:
                     if self._per_worker_type_prices is not None:
                         self._job_cost_so_far[single_job_id] += \
                             (self._per_worker_type_prices[worker_type] *
-                             execution_time / 3600.0 * scale_factor)
+                             execution_time / 3600.0 * scale_factor) # DEBUG(xlc): 每单步计算完成
                         job_cost_so_far = \
                             self._job_cost_so_far[single_job_id]
                         self._logger.info(
@@ -3038,16 +3039,16 @@ class Scheduler:
                         self._running_jobs.remove(single_job_id)
                         self._steps_run_so_far[single_job_id][worker_type] += \
                                 num_steps
-                        self._total_steps_run[single_job_id] += num_steps
+                        self._total_steps_run[single_job_id] += num_steps # DEBUG(xlc): 在这里对记录的step做更新
                         remaining_steps = \
                             self._get_remaining_steps(single_job_id)
                         if remaining_steps > 0:
-                            if not self._simulate: # FIX(xlc): 增加log
-                                self._logger.debug(
-                                    'Job {job_id} has {steps} '
-                                    'remaining steps'.format(
-                                        job_id=single_job_id,
-                                        steps=remaining_steps))
+                            # if not self._simulate: # FIX(xlc): 增加log
+                            self._logger.debug(
+                                'Job {job_id} has {steps} '
+                                'remaining steps'.format(
+                                    job_id=single_job_id,
+                                    steps=remaining_steps))
                         else:
                             start_time = \
                                 self._per_job_start_timestamps[single_job_id]

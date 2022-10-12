@@ -113,7 +113,7 @@ def measure_runtime(num_active_jobs, policy_name,
                     policy.get_allocation(
                         throughputs, scale_factors, cluster_spec)
 
-        runtime = time.time() - start_time
+        runtime = time.time() - start_time # DEBUG(xlc): 这就是计算执行时间????
         results.append(runtime)
     for result in results:
         results_str += ',' + str(result)
