@@ -33,7 +33,7 @@ class FIFOPolicy(Policy):
             for scheduled_job_id in self._allocation:
                 assert scheduled_job_id != job_id_to_schedule
                 assert scheduled_job_id in throughputs
-                if scheduled_job_id.is_pair():
+                if scheduled_job_id.is_pair(): # DEBUG(xlc): 已经被packing的任务就不参与了
                     continue
                 if (scale_factors[scheduled_job_id] !=\
                         scale_factors[job_id_to_schedule]):
@@ -51,7 +51,7 @@ class FIFOPolicy(Policy):
                             throughputs[single_job_id][worker_type]
                     normalized_packed_throughput += \
                             packed_throughput[i] / isolated_throughput
-                if normalized_packed_throughput > max_packed_throughput:
+                if normalized_packed_throughput > max_packed_throughput: # DEBUG(xlc): 找最大的吞吐量
                     max_packed_throughput = normalized_packed_throughput
                     job_id_to_pack_with = scheduled_job_id
             if job_id_to_pack_with is None:
@@ -68,7 +68,7 @@ class FIFOPolicy(Policy):
                                               job_id_to_schedule[0])
                 worker_type = self._allocation[job_id_to_pack_with]
                 del self._allocation[job_id_to_pack_with]
-                self._allocation[merged_job_id] = worker_type
+                self._allocation[merged_job_id] = worker_type # DEBUG(xlc): 直接调度到packing任务的位置即可
 
 
     def get_allocation(self, throughputs, scale_factors, cluster_spec):
@@ -80,11 +80,11 @@ class FIFOPolicy(Policy):
             self._scale_factors[job_id] = scale_factors[job_id]
 
         # Reset the allocation when running in performance-aware mode.
-        if self._mode != 'base':
+        if self._mode != 'base': # DEBUG(xlc): 只有对于'base'的操作才是最准确的非抢占式FIFO, 其他方法都是每次贪心解决
             self._allocation = {}
 
         # Add all jobs that have not been allocated already to the queue.
-        # Jobs should be added in order of arrival (i.e. according to Job ID).
+        # Jobs should be added in order of arrival (i.e. according to Job ID). # DEBUG(xlc): JobId 本身就可以指示先到先服务的情况
         for job_id in sorted(list(throughputs.keys())):
             if job_id not in self._allocation and not job_id.is_pair():
                 queue.append(job_id)
@@ -95,11 +95,11 @@ class FIFOPolicy(Policy):
         # because the allocation is reset.
         for scheduled_job_id in sorted(list(self._allocation.keys())):
             worker_type = self._allocation[scheduled_job_id]
-            # Check if job has completed. DEBUG(xlc): why?
+            # Check if job has completed. DEBUG(xlc): 只有对那些完成了的任务, 才会执行这个操作
             if scheduled_job_id not in throughputs:
                 # If only one job in a pair of co-located jobs completed, then
                 # add the other job back to the queue.
-                for single_job_id in scheduled_job_id.singletons():
+                for single_job_id in scheduled_job_id.singletons(): # DEBUG(xlc): 如果执行完成的任务是pack任务, 就增加到队列
                     if single_job_id in throughputs:
                         queue.append(single_job_id)
                         queue.sort()
@@ -110,7 +110,7 @@ class FIFOPolicy(Policy):
                         worker_type = self._allocation[scheduled_job_id]
                         if throughputs[job_id_to_schedule][worker_type] > 0.0:
                             queue.pop(0)
-                            self._allocation[job_id_to_schedule] = worker_type
+                            self._allocation[job_id_to_schedule] = worker_type # DEBUG(xlc): 从队列里面将任务放到当前完成的任务位置里
                             available_workers[worker_type] -= \
                                 scale_factors[job_id_to_schedule]
                 del self._allocation[scheduled_job_id]
@@ -138,12 +138,12 @@ class FIFOPolicy(Policy):
                 if available_workers[worker_type] >= scale_factor:
                     available_worker_types_with_scale_factor.append(worker_type)
                     original_available_worker_types_mapping.append(i)
-            if len(available_worker_types_with_scale_factor) == 0:
+            if len(available_worker_types_with_scale_factor) == 0: # DEBUG(xlc): 当第一个任务无法被资源满足的时候, 就弹出准备packing
                 break
             if self._mode == 'base': # DEBUG(xlc): 随机给一个worker进行分配, 感觉这里应该是最优者优先才对吧
                 worker_type_idx = self._rng.randrange(
                         len(available_worker_types_with_scale_factor))
-                worker_type = available_worker_types_with_scale_factor[worker_type_idx] # FIX(xlc): 增加了这一行, 
+                worker_type = available_worker_types_with_scale_factor[worker_type_idx] # FIX(xlc): 增加了这一行, 真正做到随机
             else:
                 # Find the worker_type with best performance for this job.
                 worker_type = None
@@ -164,9 +164,9 @@ class FIFOPolicy(Policy):
                     available_worker_types.pop(worker_type_idx)
 
         if self._mode == 'packing':
-            self._pack(queue, throughputs, scale_factors)
+            self._pack(queue, throughputs, scale_factors) # DEBUG(xlc): 只有当queue不为空, 资源存在限制才会packing
 
-        # Construct output allocation.
+        # Construct output allocation. # DEBUG(xlc): one-hot矩阵, 只有FIFO命中的项目才会被设置为1
         final_allocation = {}
         for job_id in throughputs:
             final_allocation[job_id] = \

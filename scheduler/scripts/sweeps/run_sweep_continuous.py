@@ -24,7 +24,8 @@ def simulate_with_timeout(experiment_id, policy_name,
                           generate_multi_priority_jobs, simulate_steady_state,
                           log_dir, timeout, verbose, checkpoint_threshold,
                           profiling_percentage, num_reference_models,
-                          num_gpus_per_server, ideal):
+                          num_gpus_per_server, ideal, 
+                          first_rented_resource, resource_constraints_enable):
     lam_str = 'lambda=%f.log' % (lam)
     checkpoint_file = None
     if checkpoint_threshold is not None:
@@ -40,13 +41,17 @@ def simulate_with_timeout(experiment_id, policy_name,
               'Configuration: cluster_spec=%s, policy=%s, '
               'seed=%d, lam=%f, '
               'profiling_percentage=%f, '
-              'num_reference_models=%d' % (current_time,
+              'num_reference_models=%d, '
+              'first_rented_resource=%d, '
+              'resource_constraints_enable=%d,' % (current_time,
                                            experiment_id,
                                            cluster_spec_str,
                                            policy.name,
                                            seed, lam,
                                            profiling_percentage,
-                                           num_reference_models))
+                                           num_reference_models,
+                                           first_rented_resource,
+                                           resource_constraints_enable))
 
     with open(os.path.join(log_dir, lam_str), 'w') as f:
         with contextlib.redirect_stderr(f), contextlib.redirect_stdout(f): # DEBUG(xlc): 在调度线程中, 总是将标准输出重定向到文件中, 所以永远看不到
@@ -69,7 +74,8 @@ def simulate_with_timeout(experiment_id, policy_name,
                                checkpoint_file=checkpoint_file,
                                checkpoint_threshold=checkpoint_threshold,
                                num_gpus_per_server=num_gpus_per_server,
-                               ideal=ideal)
+                               ideal=ideal,
+                               first_rented_resource=first_rented_resource)
                 average_jct = sched.get_average_jct(jobs_to_complete)
                 utilization = 1.0
                 if not ideal:
@@ -236,7 +242,9 @@ def main(args):
                                                   profiling_percentage,
                                                   num_reference_models,
                                                   num_gpus_per_server,
-                                                  args.ideal))
+                                                  args.ideal,
+                                                  args.first_rented_resource,
+                                                  args.resource_constraints_enable))
                             experiment_id += 1
     if len(all_args_list) > 0:
         current_time = datetime.datetime.now()
@@ -246,7 +254,7 @@ def main(args):
             # Sort args in order of decreasing lambda to prioritize
             # short-running jobs.
             all_args_list.sort(key=lambda x: x[4], reverse=True)
-            results = [p.apply_async(simulate_with_timeout, args_list)
+            results = [p.apply_async(utils.LogExceptions(simulate_with_timeout), args_list)
                        for args_list in all_args_list]
             results = [result.get() for result in results]
     else:
@@ -331,5 +339,9 @@ if __name__=='__main__':
                                    'sweep'))
     fixed_range.add_argument('-n', '--num-data-points', type=int, default=20,
                              help='Number of data points to sweep through')
+    fixed_range.add_argument('--first-rented-resource', action='store_true', default=False,
+                            help='first to use have rented resource')
+    fixed_range.add_argument('--resource-constraints-enable', action='store_true', default=False,
+                            help='enable resource constraints')
     args = parser.parse_args()
     main(args)

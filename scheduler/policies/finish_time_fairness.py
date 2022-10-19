@@ -76,16 +76,16 @@ class FinishTimeFairnessPolicyWithPerf(Policy):
         # Create allocation variable, and isolated allocation.
         x = cp.Variable(throughputs.shape)
         isolated_throughputs = self._isolated_policy.get_throughputs(
-            throughputs, index, scale_factors, cluster_spec)
+            throughputs, index, scale_factors, cluster_spec) # DEBUG(xlc): 每次都会重新获取新的isolated_throughput
         expected_time_fractions = []
         for i in range(len(job_ids)):
             if job_ids[i] not in self._cumulative_isolated_time:
-                self._cumulative_isolated_time[job_ids[i]] = 0
+                self._cumulative_isolated_time[job_ids[i]] = 0 # DEBUG(xlc): 刚进来, isolated累计已执行时间为0
             if job_ids[i] in self._num_steps_remaining_prev_iteration:
                 self._cumulative_isolated_time[job_ids[i]] += (
                     self._num_steps_remaining_prev_iteration[job_ids[i]] -
                     num_steps_remaining[job_ids[i]]) / \
-                    self._isolated_throughputs_prev_iteration[job_ids[i]]
+                    self._isolated_throughputs_prev_iteration[job_ids[i]] # DEBUG(xlc): 获取任务到现在使用isolated方式的模拟累计已执行时间 = (上次记录剩余step - 剩余step) / isolated对应的吞吐量
 
             allocation_throughput = cp.sum(cp.multiply(throughputs[i], x[i]))
             expected_time_isolated = self._cumulative_isolated_time[job_ids[i]] + \
@@ -174,7 +174,7 @@ class FinishTimeFairnessPolicyWithPacking(PolicyWithPacking):
                     num_steps_remaining[single_job_ids[i]]) / \
                     self._isolated_throughputs_prev_iteration[single_job_ids[i]]
 
-            indexes = relevant_combinations[single_job_ids[i]]
+            indexes = relevant_combinations[single_job_ids[i]] # DEBUG(xlc): 和packing功能直接相关
             isolated_throughput = isolated_throughputs[i]
             allocation_throughput = cp.sum(cp.multiply(
                 all_throughputs[i][indexes],
@@ -193,7 +193,7 @@ class FinishTimeFairnessPolicyWithPacking(PolicyWithPacking):
         # Make sure the allocation can fit in the cluster.
         constraints = self.get_base_constraints(x, single_job_ids,
                                                 scale_factors_array,
-                                                relevant_combinations)
+                                                relevant_combinations)  # TODO(xlc): 在SCS求解器中, 会在这一步的出现BUG
 
         # Explicitly constrain all allocation values with an effective scale
         # factor of 0 to be 0.
@@ -205,7 +205,7 @@ class FinishTimeFairnessPolicyWithPacking(PolicyWithPacking):
                 if scale_factors_array[i,j] == 0:
                     constraints.append(x[i,j] == 0)
         cvxprob = cp.Problem(objective, constraints)
-        result = cvxprob.solve(solver=self._solver)
+        result = cvxprob.solve(solver=self._solver) # TODO(xlc): 在ECOS中, 走到这一步, 求解器出错, 可能需要使用更高级的求解器
 
         if cvxprob.status != "optimal":
             print('WARNING: Allocation returned by policy not optimal!')

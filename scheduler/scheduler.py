@@ -826,7 +826,7 @@ class Scheduler:
                  self._throughputs[job_id][worker_type] <= 0)):
                 continue
 
-            # For FIFO jobs, don't schedule jobs with 0 priority.
+            # For FIFO jobs, don't schedule jobs with 0 priority. # DEBUG(xlc): 因为FIFO中以one-hot矩阵的形式表示调度的目标, 如果0.0就直接不调度了
             if (self._policy.name.startswith("FIFO") and
                 self._priorities[worker_type][job_id] <= 0.0):
                 continue
@@ -1134,7 +1134,8 @@ class Scheduler:
                  checkpoint_file=None,
                  num_gpus_per_server=None,
                  ideal=False,
-                 output_trace_file_name=None):
+                 output_trace_file_name=None,
+                 first_rented_resource=False):
         """Simulates the scheduler execution. DEBUG(xlc): 最主要的函数, 很复杂
 
            Simulation can be performed using a trace or with continuously
@@ -1166,6 +1167,7 @@ class Scheduler:
             simulate_steady_state: If set, adds as many jobs as there are
                                    workers before beginning the simulation.
             debug: If set, pauses the simulation at the start of every loop.
+            first_rented_resource: If set, first used the resource rented before.
         """
 
         from_trace = arrival_times is not None and jobs is not None
@@ -2211,7 +2213,7 @@ class Scheduler:
                 other_job_type_key = (other_job.job_type, other_job.scale_factor)
                 job_type_keys = [job_type_key, other_job_type_key]
                 merged_job_id = \
-                        job_id_pair.JobIdPair(job_id[0], other_job_id[0]) # DEBUG(xlc): 第一次出现了合并JobIdPair
+                        job_id_pair.JobIdPair(job_id[0], other_job_id[0]) # DEBUG(xlc): 第一次出现了生成合并任务的JobIdPair实例
                 if merged_job_id not in self._throughputs:
                     self._throughputs[merged_job_id] = {}
                     self._job_time_so_far[merged_job_id] = {}
@@ -2225,7 +2227,7 @@ class Scheduler:
                     isolated_throughputs = \
                         [self._oracle_throughputs[worker_type][job_type_key]['null'],
                          self._oracle_throughputs[worker_type][other_job_type_key]['null']]
-                    if job_id < other_job_id:
+                    if job_id < other_job_id: # DEBUG(xlc): 当可以packing的时候, 会直接将packing任务的情况写入_throughputs中, policy可以直接从状态中获取
                         self._throughputs[merged_job_id][worker_type] = \
                             np.multiply(
                                 reference_throughputs[reference_job_types[0]][reference_job_types[1]],
@@ -2460,7 +2462,7 @@ class Scheduler:
                         new_priority = 0
                     elif fractions[worker_type][job_id] > 0.0:
                         new_priority = self._allocation[job_id][worker_type] /\
-                                fractions[worker_type][job_id]
+                                fractions[worker_type][job_id] # DEBUG(xlc): 这个机制其实就是多退少补的机制, 如果有个工作在一个worker上执行不满足最新allocation要求, 那么优先级就是高
                     self._priorities[worker_type][job_id] = new_priority
 
     def _add_available_worker_id(self, worker_id):

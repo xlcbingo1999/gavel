@@ -15,6 +15,33 @@ from policies import allox, fifo, finish_time_fairness, gandiva, isolated, \
     max_min_fairness, max_min_fairness_water_filling, max_sum_throughput, \
     min_total_duration
 
+import traceback
+from multiprocessing.pool import Pool
+import multiprocessing
+
+# Shortcut to multiprocessing's logger
+def error(msg, *args):
+    return multiprocessing.get_logger().error(msg, *args)
+
+class LogExceptions(object):
+    def __init__(self, callable):
+        self.__callable = callable
+
+    def __call__(self, *args, **kwargs):
+        try:
+            result = self.__callable(*args, **kwargs)
+
+        except Exception as e:
+            # Here we add some debugging help. If multiprocessing's
+            # debugging is on, it will arrange to log the traceback
+            error(traceback.format_exc())
+            # Re-raise the original exception so the Pool worker can
+            # clean up
+            raise
+
+        # It was fine, give a normal answer
+        return result
+
 def _generate_scale_factor(rng):
     # Sample the scale factor from the Philly distribution.
     scale_factor = 1
@@ -198,19 +225,19 @@ def get_gpu_processes():
     return gpu_processes
 
 def get_available_policies():
-    return ['allox',
-            'fifo', 'fifo_perf', 'fifo_packed',
-            'finish_time_fairness',
-            'finish_time_fairness_perf',
-            'finish_time_fairness_packed',
-            'gandiva',
-            'isolated',
-            'max_min_fairness',
-            'max_min_fairness_perf',
-            'max_min_fairness_packed',
-            'max_min_fairness_water_filling',
-            'max_min_fairness_water_filling_perf',
-            'max_min_fairness_water_filling_packed',
+    return ['allox', # DEBUG(xlc): 只能scale_factor为1
+            'fifo', 'fifo_perf', 'fifo_packed', # DEBUG(xlc): 可以跑
+            'finish_time_fairness', # DEBUG(xlc): 可以跑
+            'finish_time_fairness_perf', # DEBUG(xlc): 可以跑
+            'finish_time_fairness_packed', # TODO(xlc): 有BUG, 和求解器相关
+            'gandiva', # DEBUG(xlc): 可以跑
+            'isolated', # DEBUG(xlc): 可以跑
+            'max_min_fairness', # DEBUG(xlc): 可以跑
+            'max_min_fairness_perf', # DEBUG(xlc): 可以跑
+            'max_min_fairness_packed', # DEBUG(xlc): 可以跑
+            'max_min_fairness_water_filling', # DEBUG(xlc): 可以跑
+            'max_min_fairness_water_filling_perf', # DEBUG(xlc): 可以跑
+            'max_min_fairness_water_filling_packed', # TODO(xlc): 有BUG 
             'max_sum_throughput_perf',
             'max_sum_throughput_normalized_by_cost_perf',
             'max_sum_throughput_normalized_by_cost_perf_SLOs',

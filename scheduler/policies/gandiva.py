@@ -7,7 +7,7 @@ import random
 import job_id_pair
 from policy import PolicyWithPacking
 
-class GandivaPolicy(PolicyWithPacking):
+class GandivaPolicy(PolicyWithPacking): # DEBUG(xlc): Gandiva的原始论文中, 该算法的实现方式是先找亲和力一样的GPU, 如果没有就找没有分配的GPU, 如果还没有
 
     def __init__(self, seed=None):
         self._name = 'Gandiva_Packing'
@@ -70,8 +70,8 @@ class GandivaPolicy(PolicyWithPacking):
         (job_ids, single_job_ids, worker_types, relevant_combinations) = index
 
         assigned_combination_keys = self._assigned_combinations.keys()
-        to_delete = []
-        for job_id in assigned_combination_keys:
+        to_delete = [] # DEBUG(xlc): 这里是处理需要删除的内容, 主要是上一阶段被判断需要assigned的任务, 可能已经被执行完成或不参与本轮allocation, 或者合并吞吐量小于1, 则删除上轮的assign
+        for job_id in assigned_combination_keys: # DEBUG(xlc): 这个获取的主要都是单文件
             (job_combination, other_job_id) = self._assigned_combinations[job_id]
             if job_id not in job_ids:
                 to_delete.extend([job_id, other_job_id])
@@ -101,7 +101,7 @@ class GandivaPolicy(PolicyWithPacking):
             x = self._get_allocation(single_job_ids, index, scale_factors,
                                      cluster_spec)
         else:
-            # Deploy packing.
+            # Deploy packing. # DEBUG(xlc): Gandiva的打包机制, 这里是当资源不足的时候使用该机制
             # Assign all job IDs that are not yet in combinations to combinations.
             to_be_assigned_combinations = []
             for single_job_id in single_job_ids:
@@ -114,12 +114,12 @@ class GandivaPolicy(PolicyWithPacking):
             while len(to_be_assigned_combinations) > 1 and i < n:
                 i += 1
                 [job1_id, job2_id] = self._rng.sample(
-                    to_be_assigned_combinations, 2)
+                    to_be_assigned_combinations, 2) # DEBUG(xlc): 随机从任务中找两个出来
                 # Make sure scale factors of jobs in job combination are the
                 # same.
-                if scale_factors[job1_id] != scale_factors[job2_id]:
+                if scale_factors[job1_id] != scale_factors[job2_id]: # DEBUG(xlc): 首先保证随机找到的任务的scale_factor必须相同, 这个过程最多持续n次
                     continue
-                to_be_assigned_combinations.remove(job1_id)
+                to_be_assigned_combinations.remove(job1_id) # DEBUG(xlc): 当找到两个任务的scale_factor相同的时候, 直接合并两个任务
                 to_be_assigned_combinations.remove(job2_id)
                 job_combination = job_id_pair.JobIdPair(job1_id[0], job2_id[0])
                 self._assigned_combinations[job1_id] = (job_combination,

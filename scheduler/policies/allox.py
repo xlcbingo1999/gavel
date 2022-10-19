@@ -59,12 +59,12 @@ class AlloXPolicy(Policy):
 
         # Sort job IDs according to arrival time.
         unallocated_job_ids.sort(key=lambda x: -times_since_start[x])
-        unallocated_job_ids = unallocated_job_ids[:max(int(self._alpha * m), n)]
+        unallocated_job_ids = unallocated_job_ids[:max(int(self._alpha * m), n)] # DEBUG(xlc): 只取一定比例的job处理?
         m = len(unallocated_job_ids)
 
         # Construct matrix of processing times for each job on each worker,
         # taking into account the type of each worker.
-        q_base = np.zeros((m, n))
+        q_base = np.zeros((m, n)) # DEBUG(xlc): 不同机器上不同任务的剩余执行时间, 这个是个未卜先知的实际值
         for i in range(m):
             for j in range(n):
                 worker_type = worker_id_to_worker_type_mapping[j]
@@ -72,14 +72,14 @@ class AlloXPolicy(Policy):
                 if throughput == 0.0:
                     throughput = 1e-10
                 q_base[i, j] = num_steps_remaining[unallocated_job_ids[i]] / \
-                    throughput
-        # q is computed as [q_base q_base*2 q_base*3 ... q_base*n].
+                    throughput # DEBUG(xlc): 这一步是正常操作
+        # q is computed as [q_base q_base*2 q_base*3 ... q_base*n]. # DEBUG(xlc): 剩余执行时间的[1, 2, ..., n]矩阵
         q = np.copy(q_base)
-        for i in range(2, m+1):
+        for i in range(2, m+1): # DEBUG(xlc): 这一步应该是行数不变, 列数增加, 表示对不同的scale_factor的模拟?
             scaled_q_base = i * q_base
             q = np.concatenate((q, scaled_q_base), axis=1)
 
-        # Construct matrix of delay times for each job on each worker.
+        # Construct matrix of delay times for each job on each worker. # DEBUG(xlc): 开始时间的[1, 1, ..., 1]矩阵
         d_base = np.zeros((m, n))
         for i in range(m):
             for j in range(n):
@@ -89,24 +89,24 @@ class AlloXPolicy(Policy):
         for i in range(2, m+1):
             d = np.concatenate((d, d_base), axis=1)
 
-        # Add d to q.
+        # Add d to q. # DEBUG(xlc): 这里是对全执行时间做优化 (剩余时间 + 开始时间)
         q = q + d
 
         # Solve assignment problem using Hungarian method (implemented in scipy).
-        row_indices, col_indices = linear_sum_assignment(q)
+        row_indices, col_indices = linear_sum_assignment(q) # DEBUG(xlc): 使用匈牙利算法求解最佳匹配问题
 
         # Extract assignment of jobs to worker types.
         per_worker_id_job_assignment = {i: [] for i in range(n)}
         for (row_index, col_index) in zip(row_indices, col_indices):
             job_id = unallocated_job_ids[row_index]
-            worker_id = col_index % n
+            worker_id = col_index % n # DEBUG(xlc): 因为输出的矩阵本身就做了扩充, 因此需要求余数得到正确的worker_id
             worker_type = worker_id_to_worker_type_mapping[worker_id]
             worker_type_order = col_index // n
             per_worker_id_job_assignment[worker_id].append((job_id, worker_type_order))
         for worker_id in range(n):
             per_worker_id_job_assignment[worker_id] = [
                 (x[0], len(per_worker_id_job_assignment[worker_id]) -1 - x[1])
-                for x in per_worker_id_job_assignment[worker_id]]
+                for x in per_worker_id_job_assignment[worker_id]] # DEBUG(xlc): 如果没有通过匈牙利算法得到的结果是不会参与这里的计算, 只是做了差值计算
             per_worker_id_job_assignment[worker_id].sort(key=lambda x: x[1])
 
         # Construct allocation. Don't remember allocations beyond the first
