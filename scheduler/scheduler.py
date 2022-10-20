@@ -1238,13 +1238,10 @@ class Scheduler:
                 num_gpus = num_gpus_per_server[worker_type]
             if mem_per_server is not None:
                 mem_gpu = mem_per_server[worker_type]
-            if tput_level_per_server is not None:
-                tput_level_gpu = tput_level_per_server[worker_type]
             for i in range(cluster_spec[worker_type] // num_gpus):
                 self._register_worker_callback(worker_type,
                                                num_gpus=num_gpus,
-                                               mem_gpu=mem_gpu,
-                                               tput_level_gpu=tput_level_gpu)
+                                               mem_gpu=mem_gpu)
 
         if checkpoint_file is not None and checkpoint_threshold is None:
             (last_job_arrival_time,
@@ -2577,7 +2574,7 @@ class Scheduler:
     ======================================================================
     """
 
-    def _register_worker_callback(self, worker_type, num_gpus=1, mem_gpu=None, tput_level_gpu=None,
+    def _register_worker_callback(self, worker_type, num_gpus=1, mem_gpu=None,
                                   ip_addr=None, port=None):
         """Registers a worker with the scheduler.
 

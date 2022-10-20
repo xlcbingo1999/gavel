@@ -169,12 +169,6 @@ def main(args):
             'p100': int(mem_per_server_split[1]),
             'k80': int(mem_per_server_split[2])
         }
-        tput_level_per_server_split = args.tput_level_per_server.split(':')
-        tput_level_per_server = {
-            'v100': int(tput_level_per_server_split[0]),
-            'p100': int(tput_level_per_server_split[1]),
-            'k80': int(tput_level_per_server_split[2])
-        }
 
         raw_logs_cluster_spec_subdir = \
             os.path.join(raw_logs_dir,
