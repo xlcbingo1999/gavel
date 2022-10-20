@@ -1151,8 +1151,7 @@ class Scheduler:
                  num_gpus_per_server=None,
                  ideal=False,
                  output_trace_file_name=None,
-                 mem_per_server=None,
-                 tput_level_per_server=None):
+                 mem_per_server=None):
         """Simulates the scheduler execution. DEBUG(xlc): 最主要的函数, 很复杂
 
            Simulation can be performed using a trace or with continuously
@@ -1185,7 +1184,6 @@ class Scheduler:
                                    workers before beginning the simulation.
             debug: If set, pauses the simulation at the start of every loop.
             mem_per_server: 
-            tput_level_per_server:
         """
 
         from_trace = arrival_times is not None and jobs is not None

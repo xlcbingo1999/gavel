@@ -25,7 +25,7 @@ def simulate_with_timeout(experiment_id, policy_name,
                           log_dir, timeout, verbose, checkpoint_threshold,
                           profiling_percentage, num_reference_models,
                           num_gpus_per_server, ideal, 
-                          mem_per_server, tput_level_per_server,
+                          mem_per_server,
                           per_instance_type_prices_dir, available_clouds):
     lam_str = 'lambda=%f.log' % (lam)
     checkpoint_file = None
@@ -37,7 +37,6 @@ def simulate_with_timeout(experiment_id, policy_name,
                                                            cluster_spec['k80'])
 
     mem_per_server_str = 'v100:%d|p100:%d|k80:%d' % (mem_per_server['v100'], mem_per_server['p100'], mem_per_server['k80'])
-    tput_level_per_server_str = 'v100:%d|p100:%d|k80:%d' % (tput_level_per_server['v100'], tput_level_per_server['p100'], tput_level_per_server['k80'])
     policy = utils.get_policy(policy_name, solver=solver, seed=seed)
     if verbose:
         current_time = datetime.datetime.now()
@@ -46,16 +45,14 @@ def simulate_with_timeout(experiment_id, policy_name,
               'seed=%d, lam=%f, '
               'profiling_percentage=%f, '
               'num_reference_models=%d, '
-              'mem_per_server_str=%s, '
-              'tput_level_per_server_str=%s, ' % (current_time,
+              'mem_per_server_str=%s, ' % (current_time,
                                            experiment_id,
                                            cluster_spec_str,
                                            policy.name,
                                            seed, lam,
                                            profiling_percentage,
                                            num_reference_models,
-                                           mem_per_server_str,
-                                           tput_level_per_server_str))
+                                           mem_per_server_str))
 
     with open(os.path.join(log_dir, lam_str), 'w') as f:
         with contextlib.redirect_stderr(f), contextlib.redirect_stdout(f): # DEBUG(xlc): 在调度线程中, 总是将标准输出重定向到文件中, 所以永远看不到
@@ -81,8 +78,7 @@ def simulate_with_timeout(experiment_id, policy_name,
                                checkpoint_threshold=checkpoint_threshold,
                                num_gpus_per_server=num_gpus_per_server,
                                ideal=ideal,
-                               mem_per_server=mem_per_server,
-                               tput_level_per_server=tput_level_per_server)
+                               mem_per_server=mem_per_server)
                 average_jct = sched.get_average_jct(jobs_to_complete)
                 utilization = 1.0
                 if not ideal:
@@ -263,7 +259,6 @@ def main(args):
                                                   num_gpus_per_server,
                                                   args.ideal,
                                                   mem_per_server,
-                                                  tput_level_per_server,
                                                   args.per_instance_type_prices_dir,
                                                   args.available_clouds))
                             experiment_id += 1
@@ -351,9 +346,6 @@ if __name__=='__main__':
     parser.add_argument('--ideal', action='store_true', default=False,
                         help='Run allocations 100%% ideally')
     parser.add_argument('--mem_per_server', type=str, default='32:16:24',
-                        help=('Cluster specification in the form of '
-                              '#v100s:#p100s:#k80s'))
-    parser.add_argument('--tput_level_per_server', type=str, default='2:1:0',
                         help=('Cluster specification in the form of '
                               '#v100s:#p100s:#k80s'))
     parser.add_argument('--per_instance_type_prices_dir', type=str,
