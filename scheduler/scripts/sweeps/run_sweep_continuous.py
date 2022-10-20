@@ -25,7 +25,8 @@ def simulate_with_timeout(experiment_id, policy_name,
                           log_dir, timeout, verbose, checkpoint_threshold,
                           profiling_percentage, num_reference_models,
                           num_gpus_per_server, ideal, 
-                          first_rented_resource, resource_constraints_enable):
+                          mem_per_server, tput_level_per_server,
+                          per_instance_type_prices_dir, available_clouds):
     lam_str = 'lambda=%f.log' % (lam)
     checkpoint_file = None
     if checkpoint_threshold is not None:
@@ -34,6 +35,9 @@ def simulate_with_timeout(experiment_id, policy_name,
     cluster_spec_str = 'v100:%d|p100:%d|k80:%d' % (cluster_spec['v100'],
                                                            cluster_spec['p100'],
                                                            cluster_spec['k80'])
+
+    mem_per_server_str = 'v100:%d|p100:%d|k80:%d' % (mem_per_server['v100'], mem_per_server['p100'], mem_per_server['k80'])
+    tput_level_per_server_str = 'v100:%d|p100:%d|k80:%d' % (tput_level_per_server['v100'], tput_level_per_server['p100'], tput_level_per_server['k80'])
     policy = utils.get_policy(policy_name, solver=solver, seed=seed)
     if verbose:
         current_time = datetime.datetime.now()
@@ -42,16 +46,16 @@ def simulate_with_timeout(experiment_id, policy_name,
               'seed=%d, lam=%f, '
               'profiling_percentage=%f, '
               'num_reference_models=%d, '
-              'first_rented_resource=%d, '
-              'resource_constraints_enable=%d,' % (current_time,
+              'mem_per_server_str=%s, '
+              'tput_level_per_server_str=%s, ' % (current_time,
                                            experiment_id,
                                            cluster_spec_str,
                                            policy.name,
                                            seed, lam,
                                            profiling_percentage,
                                            num_reference_models,
-                                           first_rented_resource,
-                                           resource_constraints_enable))
+                                           mem_per_server_str,
+                                           tput_level_per_server_str))
 
     with open(os.path.join(log_dir, lam_str), 'w') as f:
         with contextlib.redirect_stderr(f), contextlib.redirect_stdout(f): # DEBUG(xlc): 在调度线程中, 总是将标准输出重定向到文件中, 所以永远看不到
@@ -62,6 +66,8 @@ def simulate_with_timeout(experiment_id, policy_name,
                             time_per_iteration=interval,
                             simulate=True,
                             profiling_percentage=profiling_percentage,
+                            per_instance_type_prices_dir=per_instance_type_prices_dir,
+                            available_clouds=available_clouds,
                             num_reference_models=num_reference_models)
 
             if timeout is None:
@@ -75,7 +81,8 @@ def simulate_with_timeout(experiment_id, policy_name,
                                checkpoint_threshold=checkpoint_threshold,
                                num_gpus_per_server=num_gpus_per_server,
                                ideal=ideal,
-                               first_rented_resource=first_rented_resource)
+                               mem_per_server=mem_per_server,
+                               tput_level_per_server=tput_level_per_server)
                 average_jct = sched.get_average_jct(jobs_to_complete)
                 utilization = 1.0
                 if not ideal:
@@ -160,6 +167,18 @@ def main(args):
             'p100': int(num_gpus_per_server_split[1]),
             'k80': int(num_gpus_per_server_split[2]),
         }
+        mem_per_server_split = args.mem_per_server.split(':')
+        mem_per_server = {
+            'v100': int(mem_per_server_split[0]),
+            'p100': int(mem_per_server_split[1]),
+            'k80': int(mem_per_server_split[2])
+        }
+        tput_level_per_server_split = args.tput_level_per_server.split(':')
+        tput_level_per_server = {
+            'v100': int(tput_level_per_server_split[0]),
+            'p100': int(tput_level_per_server_split[1]),
+            'k80': int(tput_level_per_server_split[2])
+        }
 
         raw_logs_cluster_spec_subdir = \
             os.path.join(raw_logs_dir,
@@ -243,8 +262,10 @@ def main(args):
                                                   num_reference_models,
                                                   num_gpus_per_server,
                                                   args.ideal,
-                                                  args.first_rented_resource,
-                                                  args.resource_constraints_enable))
+                                                  mem_per_server,
+                                                  tput_level_per_server,
+                                                  args.per_instance_type_prices_dir,
+                                                  args.available_clouds))
                             experiment_id += 1
     if len(all_args_list) > 0:
         current_time = datetime.datetime.now()
@@ -329,6 +350,19 @@ if __name__=='__main__':
                               'estimating throughputs'))
     parser.add_argument('--ideal', action='store_true', default=False,
                         help='Run allocations 100%% ideally')
+    parser.add_argument('--mem_per_server', type=str, default='32:16:24',
+                        help=('Cluster specification in the form of '
+                              '#v100s:#p100s:#k80s'))
+    parser.add_argument('--tput_level_per_server', type=str, default='2:1:0',
+                        help=('Cluster specification in the form of '
+                              '#v100s:#p100s:#k80s'))
+    parser.add_argument('--per_instance_type_prices_dir', type=str,
+                        default=None,
+                        help='Per-instance-type prices directory')
+    parser.add_argument('--available_clouds', type=str, nargs='+',
+                        choices=['aws', 'gcp'],
+                        default=['aws', 'gcp'],
+                        help='Clouds available to rent machines from')
     fixed_range.add_argument('-a', '--throughput-lower-bound', type=float,
                              default=None,
                              help=('Lower bound for throughput interval to '
@@ -339,9 +373,5 @@ if __name__=='__main__':
                                    'sweep'))
     fixed_range.add_argument('-n', '--num-data-points', type=int, default=20,
                              help='Number of data points to sweep through')
-    fixed_range.add_argument('--first-rented-resource', action='store_true', default=False,
-                            help='first to use have rented resource')
-    fixed_range.add_argument('--resource-constraints-enable', action='store_true', default=False,
-                            help='enable resource constraints')
     args = parser.parse_args()
     main(args)

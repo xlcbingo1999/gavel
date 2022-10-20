@@ -6,9 +6,10 @@ def resnet18(batch_size):
     command += ' --batch_size %d' % (batch_size)
     working_directory = 'image_classification/cifar10'
     num_steps_arg = '--num_steps'
+    mem_request = float(batch_size / 8)
     return JobTemplate(model=model, command=command,
                        working_directory=working_directory,
-                       num_steps_arg=num_steps_arg, distributed=True)
+                       num_steps_arg=num_steps_arg, mem_request=mem_request, distributed=True)
 
 def resnet50(batch_size):
     model = 'ResNet-50 (batch size %d)' % (batch_size)
@@ -16,9 +17,10 @@ def resnet50(batch_size):
     command += ' %s/imagenet/'
     working_directory = 'image_classification/imagenet'
     num_steps_arg = '--num_minibatches'
+    mem_request = float(batch_size / 4)
     return JobTemplate(model=model, command=command,
                        working_directory=working_directory,
-                       num_steps_arg=num_steps_arg, distributed=True)
+                       num_steps_arg=num_steps_arg, mem_request=mem_request, distributed=True)
 
 def transformer(batch_size):
     model = 'Transformer (batch size %d)' % (batch_size)
@@ -26,9 +28,10 @@ def transformer(batch_size):
     command += ' -batch_size %d -proj_share_weight' % (batch_size)
     working_directory = 'translation'
     num_steps_arg = '-step'
+    mem_request = float(batch_size / 8)
     return JobTemplate(model=model, command=command,
                        working_directory=working_directory,
-                       num_steps_arg=num_steps_arg, distributed=True)
+                       num_steps_arg=num_steps_arg, mem_request=mem_request, distributed=True)
 
 def lm(batch_size):
     model = 'LM (batch size %d)' % (batch_size)
@@ -36,9 +39,10 @@ def lm(batch_size):
     command += ' --batch_size %d' % (batch_size)
     working_directory = 'language_modeling'
     num_steps_arg = '--steps'
+    mem_request = float(batch_size / 5)
     return JobTemplate(model=model, command=command,
                        working_directory=working_directory,
-                       num_steps_arg=num_steps_arg, distributed=True)
+                       num_steps_arg=num_steps_arg, mem_request=mem_request, distributed=True)
 
 def recommendation(batch_size):
     model = 'Recommendation (batch size %d)' % (batch_size)
@@ -46,9 +50,10 @@ def recommendation(batch_size):
     command += ' --batch_size %d' % (batch_size)
     working_directory = 'recommendation'
     num_steps_arg = '-n'
+    mem_request = float(batch_size / 256)
     return JobTemplate(model=model, command=command,
                        working_directory=working_directory,
-                       num_steps_arg=num_steps_arg)
+                       num_steps_arg=num_steps_arg, mem_request=mem_request)
 
 def a3c():
     model = 'A3C'
@@ -56,9 +61,10 @@ def a3c():
                '--amsgrad True')
     working_directory = 'rl'
     num_steps_arg = '--max-steps'
+    mem_request = 16.0
     return JobTemplate(model=model, command=command,
                        working_directory=working_directory,
-                       num_steps_arg=num_steps_arg,
+                       num_steps_arg=num_steps_arg, mem_request=mem_request,
                        needs_data_dir=False)
 
 def cyclegan():
@@ -67,9 +73,10 @@ def cyclegan():
     command = ('python3 cyclegan.py --dataset_path %s/monet2photo'
                ' --decay_epoch 0')
     num_steps_arg = '--n_steps'
+    mem_request = 16.0
     return JobTemplate(model=model, command=command,
                        working_directory=working_directory,
-                       num_steps_arg=num_steps_arg)
+                       num_steps_arg=num_steps_arg, mem_request=mem_request)
 
 JobTable = []
 

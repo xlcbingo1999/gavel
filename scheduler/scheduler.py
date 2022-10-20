@@ -197,6 +197,10 @@ class Scheduler:
         self._worker_time_so_far = {}
         # Cumulative time spent running any application on each worker.
         self._cumulative_worker_time_so_far = {}
+        # Mapping of worker ID to mem and current used mem.
+        self._worker_mem_capacity = {}
+        self._current_worker_mem_so_far = {}
+        self._mem_enable = False
         # Number of jobs to compute fair share.
         self._num_jobs = 0
         # Commands to run for all current incomplete applications.
@@ -311,6 +315,14 @@ class Scheduler:
                 threading.Thread(target=self._schedule_with_rounds)
             self._mechanism_thread.daemon = True
             self._mechanism_thread.start()
+
+    @property
+    def worker_memory_remain(self):
+        result = {}
+        for worker_id in self._current_worker_mem_so_far:
+            result[worker_id] = self._worker_mem_capacity[worker_id] - \
+                                self._current_worker_mem_so_far[worker_id]
+        return result
 
     def _initialize_seeds(self, seed):
         np.random.seed(seed)
@@ -732,7 +744,7 @@ class Scheduler:
         assigned_worker_ids = worker_state['assigned_worker_ids']
         server_id_ptr = worker_state['server_id_ptr']
 
-        if job_id in worker_assignments:
+        if job_id in worker_assignments: # DEBUG(xlc): 如果任务被提前决定好如何分配, 还是会进入这里面处理
             worker_ids_for_job = list(worker_assignments[job_id])
         else: # DEBUG(xlc): 当任务在之前还没有被分配的时候
             worker_ids_for_job = []
@@ -742,7 +754,7 @@ class Scheduler:
                 server_id_ptr += 1
                 continue
             worker_id_to_assign = worker_ids[server_id_ptr][0]
-            if worker_id_to_assign not in assigned_worker_ids:
+            if worker_id_to_assign not in assigned_worker_ids: # DEBUG(xlc): 可能一个worker被多次使用
                 worker_ids_for_job.append(worker_id_to_assign)
                 assigned_worker_ids.add(worker_id_to_assign)
             worker_ids[server_id_ptr].pop(0) # DEBUG(xlc): 每当一个worker被分配, worker_ids弹出
@@ -827,7 +839,7 @@ class Scheduler:
                 continue
 
             # For FIFO jobs, don't schedule jobs with 0 priority. # DEBUG(xlc): 因为FIFO中以one-hot矩阵的形式表示调度的目标, 如果0.0就直接不调度了
-            if (self._policy.name.startswith("FIFO") and
+            if (self._policy.invalid_allocation_zero and
                 self._priorities[worker_type][job_id] <= 0.0):
                 continue
 
@@ -1064,6 +1076,8 @@ class Scheduler:
             pickle.dump(self._job_time_so_far, f)
             pickle.dump(self._worker_start_times, f)
             pickle.dump(self._worker_time_so_far, f)
+            pickle.dump(self._worker_mem_capacity, f)
+            pickle.dump(self._current_worker_mem_so_far, f)
             pickle.dump(self._cumulative_worker_time_so_far, f)
             pickle.dump(self._num_jobs, f)
             pickle.dump(self._priorities, f)
@@ -1097,6 +1111,8 @@ class Scheduler:
             self._job_time_so_far = pickle.load(f)
             self._worker_start_times = pickle.load(f)
             self._worker_time_so_far = pickle.load(f)
+            self._worker_mem_capacity = pickle.load(f)
+            self._current_worker_mem_so_far = pickle.load(f)
             self._cumulative_worker_time_so_far = pickle.load(f)
             self._num_jobs = pickle.load(f)
             self._priorities = pickle.load(f)
@@ -1135,7 +1151,8 @@ class Scheduler:
                  num_gpus_per_server=None,
                  ideal=False,
                  output_trace_file_name=None,
-                 first_rented_resource=False):
+                 mem_per_server=None,
+                 tput_level_per_server=None):
         """Simulates the scheduler execution. DEBUG(xlc): 最主要的函数, 很复杂
 
            Simulation can be performed using a trace or with continuously
@@ -1167,7 +1184,8 @@ class Scheduler:
             simulate_steady_state: If set, adds as many jobs as there are
                                    workers before beginning the simulation.
             debug: If set, pauses the simulation at the start of every loop.
-            first_rented_resource: If set, first used the resource rented before.
+            mem_per_server: 
+            tput_level_per_server:
         """
 
         from_trace = arrival_times is not None and jobs is not None
@@ -1195,6 +1213,12 @@ class Scheduler:
             output_trace_file = open(output_trace_file_name, 'w')
         else:
             output_trace_file = None
+        if mem_per_server is not None:
+            self._mem_enable = True
+            if not utils.is_policy_memory_enable(self._policy):
+                raise ValueError('Only the policy enable memory can use the memory attribute.')
+        else:
+            self._mem_enable = False
 
         running_jobs = []
         num_jobs_generated = 0
@@ -1214,9 +1238,15 @@ class Scheduler:
             num_gpus = 1
             if num_gpus_per_server is not None:
                 num_gpus = num_gpus_per_server[worker_type]
+            if mem_per_server is not None:
+                mem_gpu = mem_per_server[worker_type]
+            if tput_level_per_server is not None:
+                tput_level_gpu = tput_level_per_server[worker_type]
             for i in range(cluster_spec[worker_type] // num_gpus):
                 self._register_worker_callback(worker_type,
-                                               num_gpus=num_gpus)
+                                               num_gpus=num_gpus,
+                                               mem_gpu=mem_gpu,
+                                               tput_level_gpu=tput_level_gpu)
 
         if checkpoint_file is not None and checkpoint_threshold is None:
             (last_job_arrival_time,
@@ -1333,7 +1363,7 @@ class Scheduler:
                                 [x // scale_factor for x in all_num_steps]
                         for j in range(len(all_num_steps_)):
                             total_steps[j] += all_num_steps_[j]
-                        self._done_callback(job_id, worker_id,
+                        self._done_callback(job_id, worker_id, len(worker_ids),
                                             all_num_steps_, # DEBUG(xlc): 本轮执行的step数量, 这个就是最后用于判断一个任务是否完成的关键, 统一的计算
                                             all_execution_times) # DEBUG(xlc): 本轮执行的时间
                     for single_job_id in job_id.singletons():
@@ -1477,7 +1507,8 @@ class Scheduler:
                     worker_type = \
                         self._worker_id_to_worker_type_mapping[worker_ids[0]]
                     for worker_id in worker_ids:
-                        self._remove_available_worker_id(worker_id)
+                        self._remove_available_worker_id(worker_id) # DEBUG(xlc): 调度上去之后立即把worker删除
+                    self._update_memory_use(job_id, worker_ids, len(worker_ids), mem_out=True) # FEATURE(xlc): 处理worker对于Mem的使用情况
                     all_num_steps, max_finish_time = \
                             self._get_job_steps_and_finish_times(job_id,
                                                                  worker_type)
@@ -2087,6 +2118,12 @@ class Scheduler:
                     state['SLOs'] = SLOs
                 else:
                     state['num_steps_remaining'] = {}
+
+        if self._policy.enable_memory:
+            state['current_jobs'] = copy.deepcopy(self._jobs)
+            state['worker_memory_remain'] = copy.deepcopy(self.worker_memory_remain)
+            state['worker_id_to_worker_type_mapping'] = copy.deepcopy(self._worker_id_to_worker_type_mapping)
+            state['instance_costs'] = copy.deepcopy(self._per_worker_type_prices)
         return state
 
     # @preconditions(lambda self: self._simulate or self._scheduler_lock.locked())
@@ -2150,6 +2187,15 @@ class Scheduler:
                 allocation = self._policy.get_allocation(
                     throughputs, scale_factors, self._cluster_spec,
                     instance_costs=instance_costs)
+        elif self._policy.name.startswith("ApproximationCEGS"):
+            current_jobs = state['current_jobs']
+            worker_memory_remain = state['worker_memory_remain']
+            worker_id_to_worker_type_mapping = state['worker_id_to_worker_type_mapping']
+            instance_costs = state['instance_costs']
+            allocation = self._policy.get_allocation(
+                throughputs, scale_factors, num_steps_remaining, cluster_spec,
+                current_jobs, worker_memory_remain, worker_id_to_worker_type_mapping,
+                instance_costs)
         else:
             allocation = self._policy.get_allocation(
                 throughputs, scale_factors, self._cluster_spec)
@@ -2496,6 +2542,22 @@ class Scheduler:
                 'Removed worker {0} from the queue'.format(ret))
             return ret
 
+    def _update_memory_use(self, job_id, worker_ids, right_worker_ids_len, mem_out):
+        if self._simulate and self._mem_enable:
+            job_mem_request = self._jobs[job_id].memory_request / right_worker_ids_len
+            for worker_id in worker_ids:
+                if mem_out:
+                    self._current_worker_mem_so_far[worker_id] += job_mem_request
+                else:
+                    self._current_worker_mem_so_far[worker_id] -= job_mem_request
+                # FEATURE(xlc): 检查各个worker的资源利用情况
+                self._logger.debug(
+                    '[Update worker memory out: {}] worker_id[{}] Memory Utility: {}/{}'.format(
+                        mem_out, worker_id, self._current_worker_mem_so_far[worker_id], self._worker_mem_capacity[worker_id]
+                    ))
+                assert(self._current_worker_mem_so_far[worker_id] >= 0.0 and self._current_worker_mem_so_far[worker_id] <= self._worker_mem_capacity[worker_id])
+                
+
     # @preconditions(lambda self: self._simulate or self._scheduler_lock.locked())
     def _get_remaining_steps(self, job_id):
         steps_run_so_far = self._total_steps_run[job_id]
@@ -2517,7 +2579,7 @@ class Scheduler:
     ======================================================================
     """
 
-    def _register_worker_callback(self, worker_type, num_gpus=1,
+    def _register_worker_callback(self, worker_type, num_gpus=1, mem_gpu=None, tput_level_gpu=None,
                                   ip_addr=None, port=None):
         """Registers a worker with the scheduler.
 
@@ -2531,6 +2593,8 @@ class Scheduler:
         Args:
             worker_type: The type of GPU available on the worker.
             num_gpus: The number of GPUs available on the worker.
+            mem_gpu: 
+            tput_level_gpu: TODO(xlc): 感觉这个不符合要求, 因此暂时不加入
             ip_addr: IP address of the worker's RPC server.
             port: Port number for the worker's RPC server.
             devices: List of available devices on the worker.
@@ -2587,6 +2651,11 @@ class Scheduler:
                 self._cumulative_worker_time_so_far[worker_id] = 0.0
 
                 self._worker_id_to_worker_type_mapping[worker_id] = worker_type
+                # FEATURE(xlc): 增加一个度量worker_id和mem的模块
+                # FEATURE(xlc): 增加一个度量worker_id当前被使用的mem的模块
+                if mem_gpu is not None:
+                    self._worker_mem_capacity[worker_id] = mem_gpu
+                    self._current_worker_mem_so_far[worker_id] = 0.0
                 self._add_available_worker_id(worker_id)
 
                 if worker_type not in self._cluster_spec:
@@ -2817,7 +2886,7 @@ class Scheduler:
                 self._logger.debug(
                     'Sending done callback for worker {0} '
                     'for job {1}'.format(worker_id, job_id))
-                self._done_callback(job_id, worker_id, x, x)
+                self._done_callback(job_id, worker_id, len(worker_ids_to_complete), x, x)
 
     def _done_callback_extended_lease(self, job_id):
         kill_job = False
@@ -2868,7 +2937,7 @@ class Scheduler:
         if kill_job:
             self._kill_job(job_id)
 
-    def _done_callback(self, job_id, worker_id, all_num_steps,
+    def _done_callback(self, job_id, worker_id, len_worker_ids, all_num_steps,
                        all_execution_times, all_iterator_logs=None):
         """Handles completion of a scheduled job.
 
@@ -2918,6 +2987,7 @@ class Scheduler:
             current_timestamp = self.get_current_timestamp()
             worker_type = self._worker_id_to_worker_type_mapping[worker_id]
             self._add_available_worker_id(worker_id)
+            self._update_memory_use(job_id, [worker_id], len_worker_ids, mem_out=False)
 
             scale_factor = len(self._current_worker_assignments[job_id])
             self._in_progress_updates[job_id].append((worker_id,

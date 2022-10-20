@@ -11,10 +11,21 @@ class Policy:
     def __init__(self, solver='ECOS'):
         self._name = None
         self._solver = solver
+        self._enable_memory = False
+        self._indivial_resource_placement = False
+        self._invalid_allocation_zero = False
 
     @property
     def name(self):
         return self._name
+
+    @property
+    def enable_memory(self):
+        return self._enable_memory
+
+    @property
+    def invalid_allocation_zero(self):
+        return self._invalid_allocation_zero
 
     def scale_factors_array(self, scale_factors, job_ids, m, n):
         scale_factors_array = np.zeros((m, n))

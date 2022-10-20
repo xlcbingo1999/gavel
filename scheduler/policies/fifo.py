@@ -10,6 +10,7 @@ from policy import Policy, PolicyWithPacking
 class FIFOPolicy(Policy):
     def __init__(self, mode='base', seed=None, packing_threshold=1.5):
         self._name = 'FIFO'
+        self._invalid_allocation_zero = True
         self._mode = mode
         self._allocation = {}
         self._scale_factors = {}

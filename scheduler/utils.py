@@ -13,7 +13,7 @@ from job import Job
 from job_table import JobTable
 from policies import allox, fifo, finish_time_fairness, gandiva, isolated, \
     max_min_fairness, max_min_fairness_water_filling, max_sum_throughput, \
-    min_total_duration
+    min_total_duration, approximation_CEGS
 
 import traceback
 from multiprocessing.pool import Pool
@@ -61,6 +61,19 @@ def _generate_duration(rng):
     else:
         run_time = 60 * (10 ** rng.uniform(1.5, 3))
     return run_time
+
+def _generate_memory(rng):
+    mem = 16
+    r = rng.uniform(0, 1)
+    if r >= 0.75:
+        mem = 32
+    elif 0.5 <= r < 0.75:
+        mem = 24
+    elif 0.25 <= r < 0.5:
+        mem = 16
+    elif r < 0.25:
+        mem = 8
+    return mem
 
 def generate_job(throughputs, reference_worker_type='v100', rng=None,
                  job_id=None, fixed_job_duration=None,
@@ -173,6 +186,7 @@ def generate_job(throughputs, reference_worker_type='v100', rng=None,
               working_directory=job_template.working_directory,
               num_steps_arg=job_template.num_steps_arg,
               total_steps=num_steps,
+              memory_request=job_template.mem_request,
               duration=run_time,
               scale_factor=scale_factor,
               priority_weight=priority_weight,
@@ -245,6 +259,8 @@ def get_available_policies():
             'min_total_duration',
             'min_total_duration_perf',
             'min_total_duration_packed',
+            'approximation_CEGS_perf',
+            'approximation_CEGS_packing',
             ]
 
 def read_per_instance_type_spot_prices_aws(directory):
@@ -527,9 +543,16 @@ def get_policy(policy_name, solver=None, seed=None,
     elif policy_name == 'min_total_duration_packed':
         policy = \
             min_total_duration.MinTotalDurationPolicyWithPacking(solver=solver)
+    elif policy_name == 'approximation_CEGS_perf':
+        policy = approximation_CEGS.ApproximationCEGSPolicyWithPref()
+    elif policy_name == 'approximation_CEGS_packed':
+        policy = approximation_CEGS.ApproximationCEGSPolicyWithPacking()
     else:
         raise ValueError('Unknown policy!')
     return policy
+
+def is_policy_memory_enable(policy):
+    return policy._enable_memory
 
 def parse_trace(trace_file):
     jobs = []
