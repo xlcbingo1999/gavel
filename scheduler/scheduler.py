@@ -34,6 +34,8 @@ import utils
 SCHEDULER_PORT = 50060
 # Proxy for infinity.
 INFINITY = int(1e9)
+# small eps
+SMALL_EPS = 1e-6
 # Default job throughput.
 DEFAULT_THROUGHPUT = 1
 # Default number of steps in each iteration.
@@ -65,6 +67,7 @@ class Scheduler:
                  enable_global_queue=False,
                  expected_num_workers=None,
                  minimum_time_between_allocation_resets=1920,
+                 minimum_time_between_datablock_add=28000,
                  max_rounds=None):
 
         # Flag to control whether scheduler runs in simulation mode.
@@ -201,6 +204,23 @@ class Scheduler:
         self._worker_mem_capacity = {}
         self._current_worker_mem_so_far = {}
         self._mem_enable = False
+        # Mapping of worker ID to rent status.
+        self._worker_last_rent_status = {}
+        # Decide privacy enable
+        self._data_enable = False
+        # dataset type
+        self._dataset_types = set()
+        self._datablock_ids = set()
+        self._empty_datablock_ids = {}
+        self._datablock_global_id_counter = 0
+        self._datablock_id_to_dataset_type_mapping = {}
+        self._dataset_type_to_datablock_id_mapping = {}
+        self._dataset_epsilon_capacity_config = {}
+        self._datablock_privacy_budget_capacity = {}
+        self._current_datablock_privacy_budget_remain = {}
+        self._last_datablock_add_time = 0
+        self._minimum_time_between_datablock_add = minimum_time_between_datablock_add
+
         # Number of jobs to compute fair share.
         self._num_jobs = 0
         # Commands to run for all current incomplete applications.
@@ -289,6 +309,7 @@ class Scheduler:
         port = SCHEDULER_PORT
         callbacks = {
             'RegisterWorker': self._register_worker_callback,
+            'RegisterDataset': self._register_dataset_callback,
             'InitJob': self._init_job_callback,
             'UpdateLease': self._update_lease_callback,
             'Done': self._done_callback,
@@ -497,7 +518,7 @@ class Scheduler:
                 self._read_throughputs_for_job_type(job_type_key) # DEBUG(xlc): 这里会根据packing的情况拿
             self._job_type_to_job_ids[job_type_key].add(job_id)
             self._num_failures_per_job[job_id] = 0
-            self._total_steps_run[job_id] = 0
+            self._total_steps_run[job_id] = 0    
             if self._SLOs is not None:
                 assert(job.duration is not None)
                 assert(job.SLO is not None)
@@ -662,6 +683,24 @@ class Scheduler:
                 'deficits': self._deficits,
             }
         return state_snapshot
+
+    def _print_datablock_privacy_budget_summary(self):
+        for dataset_type in self._dataset_types:
+            self._logger.debug("[dataset type: {}]".format(dataset_type))
+            all_datablock_ids_set = self._dataset_type_to_datablock_id_mapping[dataset_type]
+            for datablock_id in all_datablock_ids_set:
+                self._logger.debug("datablock {}: [{} / {}]".format(
+                    datablock_id,
+                    self._current_datablock_privacy_budget_remain[datablock_id],
+                    self._datablock_privacy_budget_capacity[datablock_id]
+                ))
+            sub_empty_map = {key: value for key, value in self._empty_datablock_ids.items() if value == dataset_type}
+            for datablock_id in sub_empty_map:
+                self._logger.debug('datablock {}: empty'.format(
+                    datablock_id
+                ))
+            self._logger.debug("--------------------------------------------------------------------------------")
+            
 
     def _print_schedule_summary(self, state_snapshot=None):
         if state_snapshot is not None:
@@ -865,6 +904,42 @@ class Scheduler:
 
         return scheduled_jobs
 
+    def _schedule_datablock_on_jobs_helper(self, update_datablock_state):
+        # 第一步: 更新状态; 第二步: 实际减少资源
+        for job_id in update_datablock_state:
+            target_datablock_id = update_datablock_state[job_id]
+            if job_id in self._jobs and target_datablock_id != -1:
+                self._jobs[job_id].target_datablock_id = target_datablock_id
+                self._current_datablock_privacy_budget_remain[target_datablock_id] -= self._jobs[job_id].privacy_consume
+                self._logger.info("[Job-Datablock scheduled] job_id: {} => datablock_id: {} [dataset type: {}; consume: {}]".format(
+                    job_id, target_datablock_id, self._datablock_id_to_dataset_type_mapping[target_datablock_id], self._jobs[job_id].privacy_consume
+                ))
+                self._logger.info("current datablock {} [dataset type: {}] privacy budget remain: {}".format(
+                    target_datablock_id, self._datablock_id_to_dataset_type_mapping[target_datablock_id], self._current_datablock_privacy_budget_remain[target_datablock_id]
+                ))
+                
+
+    def _schedule_datablock_to_jobs(self):
+        """Attempts to schedule datablock on as jobs as possible.
+
+           Returns:
+             filter_schedule_job;
+             
+        """
+        if self._data_enable:
+            current_time = self._current_timestamp
+            last_add_interval = current_time - self._last_datablock_add_time
+            if last_add_interval > self._minimum_time_between_datablock_add:
+                for db_type in self._dataset_types:
+                    self._register_new_datablock_callback(db_type, 1)
+                self._last_datablock_add_time = current_time
+            # feature(xlc): 这里只需要做一次滤波即可, 然后给每个子任务打上是否分配datablock的标记
+            datablock_state = self._get_datablock_allocation_state()
+            significant_matrix = None # TODO(xlc): 重要性矩阵的定义
+            new_datablock_state = self._policy.get_privacy_client_allocation(datablock_state, significant_matrix)
+            self._schedule_datablock_on_jobs_helper(new_datablock_state)
+            self._logout_empty_datablock_callback()
+            self._print_datablock_privacy_budget_summary()
 
     # @preconditions(lambda self: self._simulate or self._scheduler_lock.locked())
     def _schedule_jobs_on_workers(self):
@@ -902,10 +977,12 @@ class Scheduler:
             scheduled_jobs[worker_type].sort(key=lambda x: x[1], reverse=True) # DEBUG(xlc): 对当前worker_type下所有任务，根据scale_factors从大到小排序
             worker_ids = copy.deepcopy(
                 self._worker_type_to_worker_id_mapping[worker_type])
+            worker_last_rent_status = {key: value for key, value in self._worker_last_rent_status.items() if key in worker_ids}
             worker_state[worker_type] = {
                 'worker_ids': worker_ids,
                 'assigned_worker_ids': set(),
                 'server_id_ptr': 0, # DEBUG(xlc): 这个项是记录当前work_type中的服务id指针, 比如2个V100 GPU, 可能的取值是0, 1
+                'worker_last_rent_status': worker_last_rent_status,
             }
 
         prev_worker_types = {}
@@ -916,6 +993,9 @@ class Scheduler:
         for worker_type in worker_types:
             per_worker_state = worker_state[worker_type]
             assigned_worker_ids = per_worker_state['assigned_worker_ids']
+            all_worker_ids = per_worker_state['worker_ids']
+            worker_last_rent_status = per_worker_state['worker_last_rent_status']
+
             current_job = 0
             scale_factors = set([x[1] for x in scheduled_jobs[worker_type]])
             scale_factors = sorted(scale_factors, reverse=True) # DEBUG(xlc): 提取当前worker_type下的所有已经确定调度任务的scale_factors，并从大到小排序
@@ -941,6 +1021,10 @@ class Scheduler:
                             new_worker_assignments[job_id] = prev_worker_ids
                             for prev_worker_id in prev_worker_ids:
                                 assigned_worker_ids.add(prev_worker_id)
+                if self._policy.indivial_resource_placement:
+                    self._policy.do_resource_placement_policy(scheduled_jobs[worker_type], current_scale_factor,
+                                                            all_worker_ids, worker_last_rent_status, assigned_worker_ids,
+                                                            new_worker_assignments)
 
                 # Assign workers for remaining jobs.
                 for (job_id, scale_factor) in scheduled_jobs[worker_type]:
@@ -1151,7 +1235,8 @@ class Scheduler:
                  num_gpus_per_server=None,
                  ideal=False,
                  output_trace_file_name=None,
-                 mem_per_server=None):
+                 mem_per_server=None,
+                 data_config=None):
         """Simulates the scheduler execution. DEBUG(xlc): 最主要的函数, 很复杂
 
            Simulation can be performed using a trace or with continuously
@@ -1184,6 +1269,7 @@ class Scheduler:
                                    workers before beginning the simulation.
             debug: If set, pauses the simulation at the start of every loop.
             mem_per_server: 
+            data_config: 
         """
 
         from_trace = arrival_times is not None and jobs is not None
@@ -1217,6 +1303,14 @@ class Scheduler:
                 raise ValueError('Only the policy enable memory can use the memory attribute.')
         else:
             self._mem_enable = False
+        if data_config is not None:
+            self._data_enable = True
+            if not utils.is_policy_data_enable(self._policy):
+                raise ValueError('Only the policy enable data can use the data attribute.')
+            if self._job_packing:
+                raise ValueError('Job Packing setting can not use the data attribute.')
+        else:
+            self._data_enable = False
 
         running_jobs = []
         num_jobs_generated = 0
@@ -1236,12 +1330,19 @@ class Scheduler:
             num_gpus = 1
             if num_gpus_per_server is not None:
                 num_gpus = num_gpus_per_server[worker_type]
+            mem_gpu = None
             if mem_per_server is not None:
                 mem_gpu = mem_per_server[worker_type]
             for i in range(cluster_spec[worker_type] // num_gpus):
                 self._register_worker_callback(worker_type,
                                                num_gpus=num_gpus,
                                                mem_gpu=mem_gpu)
+
+        # Set up the dataset according to the provided spec.
+        if data_config is not None:
+            data_block_num_per_dataset = data_config['data_block_num_per_dataset']
+            data_block_epsilon_capacity = data_config['data_block_epsilon_capacity_per_dataset']
+            self._register_dataset_callback(data_block_num_per_dataset, data_block_epsilon_capacity)
 
         if checkpoint_file is not None and checkpoint_threshold is None:
             (last_job_arrival_time,
@@ -1439,6 +1540,7 @@ class Scheduler:
                     else:
                         arrival_time_delta = \
                                 self._sample_arrival_time_delta(1.0 / lam) # DEBUG(xlc): 模拟得到下个时刻的任务到来，还是一个基于数学的模拟器，全随机
+                    self._logger.debug("lam: {} => arrival_time_delta: {}".format(lam, arrival_time_delta))
                     next_job_arrival_time = \
                             arrival_time_delta + last_job_arrival_time
 
@@ -1483,6 +1585,7 @@ class Scheduler:
                     self._running_jobs.add(job_id)
             else:
                 with self._scheduler_lock:
+                    self._schedule_datablock_to_jobs()
                     scheduled_jobs = self._schedule_jobs_on_workers() # DEBUG(xlc): 实际完成调度
                     for job_id in self._current_worker_assignments:
                         is_active = \
@@ -1504,6 +1607,7 @@ class Scheduler:
                     for worker_id in worker_ids:
                         self._remove_available_worker_id(worker_id) # DEBUG(xlc): 调度上去之后立即把worker删除
                     self._update_memory_use(job_id, worker_ids, len(worker_ids), mem_out=True) # FEATURE(xlc): 处理worker对于Mem的使用情况
+                    self._update_worker_rent_status(worker_ids)
                     all_num_steps, max_finish_time = \
                             self._get_job_steps_and_finish_times(job_id,
                                                                  worker_type)
@@ -1535,6 +1639,17 @@ class Scheduler:
         self._logger.info('Total duration: %.3f seconds '
               '(%.2f hours)' % (self._current_timestamp,
                                 self._current_timestamp / 3600.0))
+
+        if self._data_enable:
+            for datablock_id in self._current_datablock_privacy_budget_remain:
+                self._logger.info('datablock {}: remain privacy budget {} [dataset type: {}]'.format(
+                    datablock_id, self._current_datablock_privacy_budget_remain[datablock_id],
+                    self._worker_id_to_worker_type_mapping[datablock_id]
+                ))
+            for datablock_id in self._empty_datablock_ids:
+                self._logger.info('datablock {}: with empty privacy budget [dataset type: {}]'.format(
+                    datablock_id, self._empty_datablock_ids[datablock_id]
+                ))
 
     def _is_final_round(self):
         return (self._max_rounds is not None and
@@ -1951,8 +2066,11 @@ class Scheduler:
         total_cost = 0.0
         for job_id in self._job_cost_so_far:
             total_cost += self._job_cost_so_far[job_id]
+            if verbose:
+                self._logger.info('Job {} cost: ${}'.format(job_id, self._job_cost_so_far[job_id]))
         if verbose:
-            print('Total cost: $%.2f' % (total_cost))
+            
+            self._logger.info('Total cost: $%.2f' % (total_cost))
         return total_cost
 
     def get_num_SLO_violations(self, verbose=True):
@@ -2120,6 +2238,29 @@ class Scheduler:
             state['worker_id_to_worker_type_mapping'] = copy.deepcopy(self._worker_id_to_worker_type_mapping)
             state['instance_costs'] = copy.deepcopy(self._per_worker_type_prices)
         return state
+    
+    def _get_datablock_allocation_state(self):
+        state = {}
+        if self._policy.enable_data:
+            state['job_allocate_datablock_id'] = {
+                job_id: self._jobs[job_id].target_datablock_id
+                for job_id in self._jobs
+            }
+            state['job_target_dataset'] = {
+                job_id: self._jobs[job_id].target_dataset
+                for job_id in self._jobs
+            }
+            state['job_privacy_budget_consume'] = {
+                job_id: self._jobs[job_id].privacy_consume
+                for job_id in self._jobs
+            }
+            state['datablock_privacy_budget_remain'] = copy.deepcopy(
+                self._current_datablock_privacy_budget_remain
+            )
+            state['dataset_type_to_datablock_id_mapping'] = copy.deepcopy(
+                self._dataset_type_to_datablock_id_mapping
+            )
+        return state
 
     # @preconditions(lambda self: self._simulate or self._scheduler_lock.locked())
     def _compute_allocation(self, state=None):
@@ -2191,6 +2332,12 @@ class Scheduler:
                 throughputs, scale_factors, num_steps_remaining, cluster_spec,
                 current_jobs, worker_memory_remain, worker_id_to_worker_type_mapping,
                 instance_costs)
+        elif self._policy.name.startswith('PrivacyBudgetClient'):
+            datablock_state = self._get_datablock_allocation_state()
+            target_datablock_id = datablock_state['job_allocate_datablock_id']
+            allocation = self._policy.get_allocation(
+                throughputs, scale_factors, cluster_spec,
+                target_datablock_id)
         else:
             allocation = self._policy.get_allocation(
                 throughputs, scale_factors, self._cluster_spec)
@@ -2552,6 +2699,11 @@ class Scheduler:
                     ))
                 assert(self._current_worker_mem_so_far[worker_id] >= 0.0 and self._current_worker_mem_so_far[worker_id] <= self._worker_mem_capacity[worker_id])
                 
+    def _update_worker_rent_status(self, worker_ids):
+        if self._simulate:
+            self._worker_last_rent_status = {key: False for key in self._worker_last_rent_status}
+            for worker_id in worker_ids:
+                self._worker_last_rent_status[worker_id] = True
 
     # @preconditions(lambda self: self._simulate or self._scheduler_lock.locked())
     def _get_remaining_steps(self, job_id):
@@ -2651,6 +2803,7 @@ class Scheduler:
                 if mem_gpu is not None:
                     self._worker_mem_capacity[worker_id] = mem_gpu
                     self._current_worker_mem_so_far[worker_id] = 0.0
+                self._worker_last_rent_status[worker_id] = False
                 self._add_available_worker_id(worker_id)
 
                 if worker_type not in self._cluster_spec:
@@ -2666,6 +2819,48 @@ class Scheduler:
 
         return (per_worker_ids, self._time_per_iteration)
 
+    def _register_dataset_callback(self, data_block_num_per_dataset, data_block_epsilon_capacity):        
+        for dataset_name in data_block_num_per_dataset:
+            if dataset_name not in self._dataset_type_to_datablock_id_mapping:
+                self._dataset_type_to_datablock_id_mapping[dataset_name] = set()
+            self._dataset_types.add(dataset_name)
+            self._dataset_epsilon_capacity_config[dataset_name] = data_block_epsilon_capacity[dataset_name]
+            for _ in range(data_block_num_per_dataset[dataset_name]):
+                self._datablock_ids.add(self._datablock_global_id_counter)
+                self._datablock_id_to_dataset_type_mapping[self._datablock_global_id_counter] = dataset_name
+                self._dataset_type_to_datablock_id_mapping[dataset_name].add(self._datablock_global_id_counter)
+                self._datablock_privacy_budget_capacity[self._datablock_global_id_counter] = data_block_epsilon_capacity[dataset_name]
+                self._current_datablock_privacy_budget_remain[self._datablock_global_id_counter] = data_block_epsilon_capacity[dataset_name]
+                self._datablock_global_id_counter += 1
+
+    def _register_new_datablock_callback(self, dataset_type, add_num):
+        if dataset_type not in self._dataset_types:
+            return
+        for _ in range(add_num):
+            self._datablock_ids.add(self._datablock_global_id_counter)
+            self._datablock_id_to_dataset_type_mapping[self._datablock_global_id_counter] = dataset_type
+            self._dataset_type_to_datablock_id_mapping[dataset_type].add(self._datablock_global_id_counter)
+            self._datablock_privacy_budget_capacity[self._datablock_global_id_counter] = self._dataset_epsilon_capacity_config[dataset_type]
+            self._current_datablock_privacy_budget_remain[self._datablock_global_id_counter] = self._dataset_epsilon_capacity_config[dataset_type]
+            self._logger.info("[register datablock] add datablock {} with type {}".format(self._datablock_global_id_counter, dataset_type))
+            self._datablock_global_id_counter += 1
+
+    def _logout_empty_datablock_callback(self):
+        to_remove_datablock_ids = []
+        for datablock_id in self._datablock_ids:
+            if self._current_datablock_privacy_budget_remain[datablock_id] <= SMALL_EPS:
+                self._empty_datablock_ids[datablock_id] = self._datablock_id_to_dataset_type_mapping[datablock_id]
+                to_remove_datablock_ids.append(datablock_id)
+        
+        for to_remove in to_remove_datablock_ids:
+            self._datablock_ids.remove(to_remove)
+            dataset_type = self._datablock_id_to_dataset_type_mapping[to_remove]
+            del self._datablock_id_to_dataset_type_mapping[to_remove]
+            self._dataset_type_to_datablock_id_mapping[dataset_type].remove(to_remove)
+            del self._datablock_privacy_budget_capacity[to_remove]
+            del self._current_datablock_privacy_budget_remain[to_remove]
+            self._logger.info("[logout datablock] remove datablock {} with type {}".format(to_remove, dataset_type))
+        
     def _init_job_callback(self, job_id):
         """Initializes a job.
 

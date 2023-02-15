@@ -8,6 +8,7 @@ from policy import Policy
 class ProportionalPolicy(Policy):
 
     def __init__(self):
+        super().__init__()
         self._name = 'Proportional'
 
     def get_throughputs(self, throughputs, index,

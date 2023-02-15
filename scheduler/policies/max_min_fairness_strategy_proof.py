@@ -11,6 +11,7 @@ from proportional import ProportionalPolicy
 class MaxMinFairnessStrategyProofPolicy(Policy):
 
     def __init__(self, solver):
+        super().__init__(self, solver)
         self._name = 'MaxMinFairness'
         self._max_min_fairness_perf_policy = \
             MaxMinFairnessPolicyWithPerf(solver)

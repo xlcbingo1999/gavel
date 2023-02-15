@@ -8,6 +8,7 @@ from policy import Policy
 class IsolatedPolicy(Policy):
 
     def __init__(self):
+        super().__init__()
         self._name = 'Isolated'
 
     def get_throughputs(self, throughputs, index, scale_factors,

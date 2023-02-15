@@ -1,0 +1,158 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python: simulate_sweep_continous privacy_budget_client_policy", // 有BUG
+            "type": "python",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args": [
+                "--window-start", "0",
+                "--window-end", "5",
+                "--log-dir", "/home/ubuntu/data/labInDiWu/gavel/logs",
+                "--processes", "1",
+                "--policies",  "privacy_budget_client_perf",
+                "--seeds", "0",
+                "--cluster-spec", "12:12:12",
+                "--throughput-lower-bound", "0.0",
+                "--throughput-upper-bound", "1.0",
+                "--num-data-points", "5",
+                "--per_instance_type_prices_dir", "/home/ubuntu/data/labInDiWu/gavel/type_prices",
+                "--available_clouds", "aws", "gcp",
+                "--generate-multi-gpu-jobs",
+                "--verbose",
+                "--data_enable",
+            ]
+        },
+        {
+            "name": "Python: simulate_sweep_continous normal",
+            "type": "python",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args": [
+                "--window-start", "0",
+                "--window-end", "5", // 100
+                "--log-dir", "/home/ubuntu/data/labInDiWu/gavel/logs",
+                "--processes", "4",
+                "--policies", "fifo_perf", 
+                                // "isolated", "max_min_fairness_perf", 
+                                // "max_sum_throughput_perf",  "max_sum_throughput_normalized_by_cost_perf", 
+                                // "min_total_duration_perf", "max_min_fairness_water_filling_perf",
+                                // "approximation_CEGS_perf",
+                "--seeds", "0",
+                "--cluster-spec", "8:8:8", // "36:36:36"
+                "--throughput-lower-bound", "0.0",
+                "--throughput-upper-bound", "1.0",
+                "--num-data-points", "5",
+                "--generate-multi-gpu-jobs",
+                "--per_instance_type_prices_dir", "/home/ubuntu/data/labInDiWu/gavel/type_prices",
+                "--available_clouds", "aws", "gcp",
+                "--verbose",
+            ]
+        },
+        {
+            "name": "Python: simulate_sweep_continous finish_time_fairness", // 有BUG
+            "type": "python",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args": [
+                "--window-start", "0",
+                "--window-end", "5",
+                "--log-dir", "/home/ubuntu/data/labInDiWu/gavel/logs",
+                "--processes", "1",
+                "--policies",  "finish_time_fairness_packed",
+                "--seeds", "0",
+                "--cluster-spec", "8:8:8",
+                "--throughput-lower-bound", "0.0",
+                "--throughput-upper-bound", "1.0",
+                "--num-data-points", "5",
+                "--solver", "SCS",
+                "--generate-multi-gpu-jobs",
+                "--verbose",
+            ]
+        },
+        {
+            "name": "Python: simulate_sweep_continous Allox",
+            "type": "python",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args": [
+                "--window-start", "0",
+                "--window-end", "5",
+                "--log-dir", "/home/ubuntu/data/labInDiWu/gavel/logs",
+                "--processes", "3",
+                "--policies",  "allox",
+                "--seeds", "0",
+                "--cluster-spec", "8:8:8",
+                "--throughput-lower-bound", "0.0",
+                "--throughput-upper-bound", "1.0",
+                "--num-data-points", "5",
+                "--verbose",
+            ]
+        },
+        {
+            "name": "Python: simulate_generated_jobs",
+            "type": "python",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args": [
+                "--window-start", "0",
+                "--window-end", "1",
+                "--policy", "max_sum_throughput_normalized_by_cost_perf_SLOs",
+                "--seed", "0",
+                "--lam", "28800.0",
+                "--cluster_spec", "16:16:16",
+                "--generate-multi-gpu-jobs",
+                "--generate-multi-priority-jobs",
+                "--verbose",
+                "--assign_SLOs", 
+                "--throughputs_file", "/home/ubuntu/data/labInDiWu/gavel/scheduler/simulation_throughputs.json",
+                "--per_instance_type_prices_dir", "/home/ubuntu/data/labInDiWu/gavel/type_prices",
+                "--available_clouds", "aws", "gcp",
+            ]
+        },
+        {
+            "name": "Python: water_filling",
+            "type": "python",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args": [
+                "--throughputs-file", "/home/ubuntu/data/labInDiWu/gavel/scheduler/simulation_throughputs.json",
+                "--generate-multi-gpu-jobs",
+                "--generate-multi-priority-jobs",
+                "--num_active_jobs", "16", "32",
+                "--policies", "max_min_fairness_perf", "max_min_fairness_water_filling_perf",
+                "--num_trials", "1",
+                "--solver", "ECOS",
+                "--output_file", "/home/ubuntu/data/labInDiWu/gavel/output_trace/water_filling_output.log",
+            ]
+        }
+    ]
+}
+
+// python scheduler/scripts/sweeps/run_sweep_continuous.py --window-start 0 --window-end 5 --log-dir logs 
+// --processes 1 --policies max_min_fairness --seeds 0 --cluster-spec 4:4:4 
+// --throughput-lower-bound 0.0 --throughput-upper-bound 1.0 --num-data-points 5
+
+// python scheduler/scripts/drivers/simulate_scheduler_with_generated_jobs.py --window-start 0  
+// --window-end 5 --policy max_sum_throughput_normalized_by_cost_perf_SLOs --seed 0
+// --lam 3600.0 --cluster_spec 32:32:32 --generate-multi-gpu-jobs --generate-multi-priority-jobs
+// --verbose --assign_SLOs --throughputs_file /home/ubuntu/data/labInDiWu/gavel/scheduler/simulation_throughputs.json
+// --output_trace_file_name /home/ubuntu/data/labInDiWu/gavel/output_trace/temp.log
+// --per_instance_type_prices_dir /home/ubuntu/data/labInDiWu/gavel/type_prices
+// --available_clouds aws gcp

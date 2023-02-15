@@ -1,6 +1,7 @@
 class Job:
     def __init__(self, job_id, job_type, command, working_directory,
-                 num_steps_arg, total_steps, memory_request, duration, scale_factor=1,
+                 num_steps_arg, total_steps, memory_request, privacy_consume, target_dataset,
+                 duration, scale_factor=1,
                  priority_weight=1, SLO=None, needs_data_dir=False):
         self._job_id = job_id
         self._job_type = job_type
@@ -10,6 +11,9 @@ class Job:
         self._num_steps_arg = num_steps_arg
         self._total_steps = total_steps
         self._memory_request = memory_request
+        self._privacy_consume = privacy_consume
+        self._target_dataset = target_dataset
+        self._target_datablock_id = -1        
         self._duration = duration
         self._scale_factor = scale_factor
         self._priority_weight = priority_weight
@@ -66,6 +70,21 @@ class Job:
     @property
     def memory_request(self):
         return self._memory_request
+
+    @property
+    def privacy_consume(self):
+        return self._privacy_consume
+
+    @property
+    def target_dataset(self):
+        return self._target_dataset
+
+    @property
+    def target_datablock_id(self):
+        return self._target_datablock_id
+    @target_datablock_id.setter
+    def target_datablock_id(self, new_id):
+        self._target_datablock_id = new_id
 
     @total_steps.setter
     def total_steps(self, total_steps):

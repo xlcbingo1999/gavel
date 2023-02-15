@@ -25,7 +25,7 @@ def simulate_with_timeout(experiment_id, policy_name,
                           log_dir, timeout, verbose, checkpoint_threshold,
                           profiling_percentage, num_reference_models,
                           num_gpus_per_server, ideal, 
-                          mem_per_server,
+                          mem_per_server, data_config,
                           per_instance_type_prices_dir, available_clouds):
     lam_str = 'lambda=%f.log' % (lam)
     checkpoint_file = None
@@ -35,8 +35,28 @@ def simulate_with_timeout(experiment_id, policy_name,
     cluster_spec_str = 'v100:%d|p100:%d|k80:%d' % (cluster_spec['v100'],
                                                            cluster_spec['p100'],
                                                            cluster_spec['k80'])
-
-    mem_per_server_str = 'v100:%d|p100:%d|k80:%d' % (mem_per_server['v100'], mem_per_server['p100'], mem_per_server['k80'])
+    if mem_per_server is not None:
+        mem_per_server_str = 'v100:%d|p100:%d|k80:%d' % (
+            mem_per_server['v100'], mem_per_server['p100'], mem_per_server['k80']
+        )
+    else:
+        mem_per_server_str = ''
+    if data_config is not None:
+        data_block_num_per_dataset_str = 'data_block_num_per_dataset:' +\
+            '[dataset0:%d|dataset1:%d|dataset2:%d]' % (
+                data_config['data_block_num_per_dataset']['dataset0'],
+                data_config['data_block_num_per_dataset']['dataset1'],
+                data_config['data_block_num_per_dataset']['dataset2'],
+            )
+        data_block_epsilon_capacity_per_dataset_str = 'data_block_epsilon_capacity_per_dataset:' +\
+            '[dataset0:%f|dataset1:%f|dataset2:%f]' % (
+                data_config['data_block_epsilon_capacity_per_dataset']['dataset0'],
+                data_config['data_block_epsilon_capacity_per_dataset']['dataset1'],
+                data_config['data_block_epsilon_capacity_per_dataset']['dataset2'],
+            )
+    else:
+        data_block_num_per_dataset_str = ''
+        data_block_epsilon_capacity_per_dataset_str = ''
     policy = utils.get_policy(policy_name, solver=solver, seed=seed)
     if verbose:
         current_time = datetime.datetime.now()
@@ -45,14 +65,18 @@ def simulate_with_timeout(experiment_id, policy_name,
               'seed=%d, lam=%f, '
               'profiling_percentage=%f, '
               'num_reference_models=%d, '
-              'mem_per_server_str=%s, ' % (current_time,
-                                           experiment_id,
-                                           cluster_spec_str,
-                                           policy.name,
-                                           seed, lam,
-                                           profiling_percentage,
-                                           num_reference_models,
-                                           mem_per_server_str))
+              'mem_per_server_str=%s, '
+              'data_block_num_per_dataset_str=%s, '
+              'data_block_epsilon_capacity_per_dataset_str=%s, ' % (current_time,
+                                                                    experiment_id,
+                                                                    cluster_spec_str,
+                                                                    policy.name,
+                                                                    seed, lam,
+                                                                    profiling_percentage,
+                                                                    num_reference_models,
+                                                                    mem_per_server_str,
+                                                                    data_block_num_per_dataset_str,
+                                                                    data_block_epsilon_capacity_per_dataset_str))
 
     with open(os.path.join(log_dir, lam_str), 'w') as f:
         with contextlib.redirect_stderr(f), contextlib.redirect_stdout(f): # DEBUG(xlc): 在调度线程中, 总是将标准输出重定向到文件中, 所以永远看不到
@@ -78,8 +102,13 @@ def simulate_with_timeout(experiment_id, policy_name,
                                checkpoint_threshold=checkpoint_threshold,
                                num_gpus_per_server=num_gpus_per_server,
                                ideal=ideal,
-                               mem_per_server=mem_per_server)
+                               mem_per_server=mem_per_server,
+                               data_config=data_config)
                 average_jct = sched.get_average_jct(jobs_to_complete)
+                sched.get_completed_steps(jobs_to_complete)
+                total_cost = sched.get_total_cost()
+                num_SLO_violations = sched.get_num_SLO_violations()
+                lease_extension_freq = sched.get_num_lease_extensions()
                 utilization = 1.0
                 if not ideal:
                     utilization = sched.get_cluster_utilization()
@@ -108,10 +137,16 @@ def simulate_with_timeout(experiment_id, policy_name,
     if verbose:
         current_time = datetime.datetime.now()
         print('[%s] [Experiment ID: %2d] '
-              'Results: average JCT=%f, utilization=%f' % (current_time,
-                                                           experiment_id,
-                                                           average_jct,
-                                                           utilization))
+              'Results: average JCT=%f, '
+              'utilization=%f, total_cost=%f, ' 
+              'num_SLO_violations=%d, '
+              'lease_extension_frequency=%.2f%%' % (current_time,
+                                                experiment_id,
+                                                average_jct,
+                                                utilization,
+                                                total_cost,
+                                                num_SLO_violations,
+                                                lease_extension_freq))
     sched.shutdown()
 
     return average_jct, utilization
@@ -163,12 +198,33 @@ def main(args):
             'p100': int(num_gpus_per_server_split[1]),
             'k80': int(num_gpus_per_server_split[2]),
         }
-        mem_per_server_split = args.mem_per_server.split(':')
-        mem_per_server = {
-            'v100': int(mem_per_server_split[0]),
-            'p100': int(mem_per_server_split[1]),
-            'k80': int(mem_per_server_split[2])
-        }
+        if args.mem_enable:
+            mem_per_server_split = args.mem_per_server.split(':')
+            mem_per_server = {
+                'v100': int(mem_per_server_split[0]),
+                'p100': int(mem_per_server_split[1]),
+                'k80': int(mem_per_server_split[2])
+            }
+        else:
+            mem_per_server = None
+        if args.data_enable:
+            print("data_enable!")
+            data_block_num_per_dataset_split = args.data_block_num_per_dataset.split(':')
+            data_block_epsilon_capacity_per_dataset_split = args.data_block_epsilon_capacity_per_dataset.split(':')
+            data_config = {
+                'data_block_num_per_dataset': {
+                    'dataset0': int(data_block_num_per_dataset_split[0]),
+                    'dataset1': int(data_block_num_per_dataset_split[1]),
+                    'dataset2': int(data_block_num_per_dataset_split[2]),
+                },
+                'data_block_epsilon_capacity_per_dataset': {
+                    'dataset0': float(data_block_epsilon_capacity_per_dataset_split[0]),
+                    'dataset1': float(data_block_epsilon_capacity_per_dataset_split[1]),
+                    'dataset2': float(data_block_epsilon_capacity_per_dataset_split[2]),
+                }
+            }
+        else:
+            data_config = None
 
         raw_logs_cluster_spec_subdir = \
             os.path.join(raw_logs_dir,
@@ -210,7 +266,7 @@ def main(args):
                     throughputs = \
                         list(np.linspace(args.throughput_lower_bound,
                                          args.throughput_upper_bound,
-                                         num=args.num_data_points)) # LOG(xlc): 自行生成throughputs
+                                         num=args.num_data_points)) # LOG(xlc): 自行生成throughputs, 根据datapoint生成, 感觉可以减少
                     if throughputs[0] == 0.0:
                         throughputs = throughputs[1:]
                     for throughput in throughputs:
@@ -253,6 +309,7 @@ def main(args):
                                                   num_gpus_per_server,
                                                   args.ideal,
                                                   mem_per_server,
+                                                  data_config,
                                                   args.per_instance_type_prices_dir,
                                                   args.available_clouds))
                             experiment_id += 1
@@ -339,9 +396,21 @@ if __name__=='__main__':
                               'estimating throughputs'))
     parser.add_argument('--ideal', action='store_true', default=False,
                         help='Run allocations 100%% ideally')
+    parser.add_argument('--mem_enable', action='store_true', default=False,
+                        help='If set, memory of workers is enable')
     parser.add_argument('--mem_per_server', type=str, default='32:16:24',
                         help=('Cluster specification in the form of '
                               '#v100s:#p100s:#k80s'))
+    parser.add_argument('--data_enable', action='store_true', default=False,
+                        help='If set, data privacy used is enable')
+    parser.add_argument('--data_block_num_per_dataset', type=str, default='4:4:4',
+                        help='data_config')
+    parser.add_argument('--data_block_epsilon_capacity_per_dataset', type=str, default='1:1:1',
+                        help='data_config')
+    parser.add_argument('--online_datablock', action='store_true', default=False,
+                        help='If set, datablcok is online coming')
+    parser.add_argument('--datablock_coming_speed', type=int, default=14400,
+                        help="datablock coming speed")
     parser.add_argument('--per_instance_type_prices_dir', type=str,
                         default=None,
                         help='Per-instance-type prices directory')

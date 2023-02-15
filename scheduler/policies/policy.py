@@ -12,6 +12,7 @@ class Policy:
         self._name = None
         self._solver = solver
         self._enable_memory = False
+        self._enable_data = False
         self._indivial_resource_placement = False
         self._invalid_allocation_zero = False
 
@@ -24,8 +25,16 @@ class Policy:
         return self._enable_memory
 
     @property
+    def enable_data(self):
+        return self._enable_data
+
+    @property
     def invalid_allocation_zero(self):
         return self._invalid_allocation_zero
+
+    @property
+    def indivial_resource_placement(self):
+        return self._indivial_resource_placement
 
     def scale_factors_array(self, scale_factors, job_ids, m, n):
         scale_factors_array = np.zeros((m, n))

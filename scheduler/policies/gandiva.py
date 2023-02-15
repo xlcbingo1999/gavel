@@ -10,6 +10,7 @@ from policy import PolicyWithPacking
 class GandivaPolicy(PolicyWithPacking): # DEBUG(xlc): Gandiva的原始论文中, 该算法的实现方式是先找亲和力一样的GPU, 如果没有就找没有分配的GPU, 如果还没有
 
     def __init__(self, seed=None):
+        super().__init__()
         self._name = 'Gandiva_Packing'
         self._assigned_combinations = {}
         self._rng = random.Random()

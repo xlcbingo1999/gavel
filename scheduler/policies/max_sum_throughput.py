@@ -9,6 +9,7 @@ from policy import Policy, PolicyWithPacking
 class ThroughputSumWithPerf(Policy):
 
     def __init__(self, solver):
+        super().__init__()
         self._name = 'ThroughputSumWithPerf'
         self._policy = ThroughputNormalizedByCostSumWithPerfSLOs(solver)
 
@@ -20,6 +21,7 @@ class ThroughputSumWithPerf(Policy):
 
 class ThroughputNormalizedByCostSumWithPerf(Policy):
     def __init__(self, solver):
+        super().__init__()
         self._name = 'ThroughputNormalizedByCostSum_Perf'
         self._policy = ThroughputNormalizedByCostSumWithPerfSLOs(solver)
 

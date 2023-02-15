@@ -12,6 +12,7 @@ from policy import Policy, PolicyWithPacking
 
 class ApproximationCEGSPolicyWithPref(Policy):
     def __init__(self):
+        super().__init__()
         self._name = "ApproximationCEGS_Pref"
         self._enable_memory = True
         self._indivial_resource_placement = True
@@ -123,8 +124,34 @@ class ApproximationCEGSPolicyWithPref(Policy):
             final_allocation[job_id][worker_type] = 1.0
         return final_allocation
 
+    def do_resource_placement_policy(self, scheduled_jobs, current_scale_factor, 
+                                    all_worker_ids, worker_last_rent_status, assigned_worker_ids, 
+                                    new_worker_assignments):
+        result_assignments_worker = {}
+        for (job_id, scale_factor) in scheduled_jobs:
+            if scale_factor != current_scale_factor: # DEBUG(xlc): 因为存在两个一模一样的排序, 所以可以保证这一步必然不成立
+                continue
+            valid_worker_ids = [(all_worker_ids[ptr][0], ptr) for ptr in range(len(all_worker_ids)) if (
+                len(all_worker_ids[ptr]) > 0 and 
+                all_worker_ids[ptr][0] in worker_last_rent_status and 
+                all_worker_ids[ptr][0] not in assigned_worker_ids and 
+                worker_last_rent_status[all_worker_ids[ptr][0]] == True
+            )]
+            if job_id not in new_worker_assignments:
+                result_assignments_worker[job_id] = []
+            else:
+                result_assignments_worker[job_id] = list(new_worker_assignments[job_id])
+            while (len(result_assignments_worker[job_id]) < scale_factor) \
+                and len(valid_worker_ids) > 0:
+                (worker_id_to_assign, _) = valid_worker_ids.pop(0)
+                result_assignments_worker[job_id].append(worker_id_to_assign)
+                assigned_worker_ids.add(worker_id_to_assign)
+            if len(result_assignments_worker[job_id]) > 0:
+                new_worker_assignments[job_id] = tuple(result_assignments_worker[job_id])
+
 class ApproximationCEGSPolicyWithPacking(PolicyWithPacking):
     def __init__(self):
+        super().__init__()
         self._name = "ApproximationCEGS_Packing"
         self._enable_memory = True
         self._allocation = {}

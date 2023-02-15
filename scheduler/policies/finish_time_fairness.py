@@ -11,6 +11,7 @@ from isolated import IsolatedPolicy
 class FinishTimeFairnessPolicy(Policy):
 
     def __init__(self, solver):
+        super().__init__()
         self._name = 'FinishTimeFairness'
         self._finish_time_fairness_perf_policy = \
             FinishTimeFairnessPolicyWithPerf(solver)

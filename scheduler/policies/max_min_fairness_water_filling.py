@@ -311,6 +311,7 @@ class WaterFillingAlgorithm:
 class MaxMinFairnessWaterFillingPolicy(Policy, WaterFillingAlgorithm):
 
     def __init__(self, priority_reweighting_policies=None):
+        Policy.__init__()
         self._name = 'MaxMinFairnessWaterFilling'
         self._max_min_fairness_perf_policy = \
             MaxMinFairnessWaterFillingPolicyWithPerf(priority_reweighting_policies)

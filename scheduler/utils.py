@@ -13,7 +13,7 @@ from job import Job
 from job_table import JobTable
 from policies import allox, fifo, finish_time_fairness, gandiva, isolated, \
     max_min_fairness, max_min_fairness_water_filling, max_sum_throughput, \
-    min_total_duration, approximation_CEGS
+    min_total_duration, approximation_CEGS, privacy_budget_client_policy
 
 import traceback
 from multiprocessing.pool import Pool
@@ -83,6 +83,7 @@ def generate_job(throughputs, reference_worker_type='v100', rng=None,
                  duration_generator_func=_generate_duration,
                  scale_factor_rng=None, duration_rng=None, SLO_rng=None,
                  always_generate_scale_factor=True):
+                 
     """Generates a new job.
 
        Args:
@@ -187,6 +188,8 @@ def generate_job(throughputs, reference_worker_type='v100', rng=None,
               num_steps_arg=job_template.num_steps_arg,
               total_steps=num_steps,
               memory_request=job_template.mem_request,
+              privacy_consume=job_template.privacy_consume,
+              target_dataset=job_template.target_dataset,
               duration=run_time,
               scale_factor=scale_factor,
               priority_weight=priority_weight,
@@ -261,6 +264,7 @@ def get_available_policies():
             'min_total_duration_packed',
             'approximation_CEGS_perf',
             'approximation_CEGS_packing',
+            'privacy_budget_client_perf',
             ]
 
 def read_per_instance_type_spot_prices_aws(directory):
@@ -547,12 +551,17 @@ def get_policy(policy_name, solver=None, seed=None,
         policy = approximation_CEGS.ApproximationCEGSPolicyWithPref()
     elif policy_name == 'approximation_CEGS_packed':
         policy = approximation_CEGS.ApproximationCEGSPolicyWithPacking()
+    elif policy_name == 'privacy_budget_client_perf':
+        policy = privacy_budget_client_policy.PrivacyBudgetClientPolicyWithPref()
     else:
         raise ValueError('Unknown policy!')
     return policy
 
 def is_policy_memory_enable(policy):
     return policy._enable_memory
+
+def is_policy_data_enable(policy):
+    return policy._enable_data
 
 def parse_trace(trace_file):
     jobs = []

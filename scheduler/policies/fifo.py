@@ -9,6 +9,7 @@ from policy import Policy, PolicyWithPacking
 
 class FIFOPolicy(Policy):
     def __init__(self, mode='base', seed=None, packing_threshold=1.5):
+        super().__init__()
         self._name = 'FIFO'
         self._invalid_allocation_zero = True
         self._mode = mode
@@ -179,6 +180,7 @@ class FIFOPolicy(Policy):
 
 class FIFOPolicyWithPerf(Policy):
     def __init__(self, packing=False):
+        super().__init__()
         self._name = 'FIFO_Perf'
         self._packing = packing
         self._policy = FIFOPolicy(mode='perf')
@@ -189,6 +191,7 @@ class FIFOPolicyWithPerf(Policy):
 
 class FIFOPolicyWithPacking(PolicyWithPacking):
     def __init__(self, packing_threshold=1.5):
+        super().__init__()
         self._name = 'FIFO_Packing'
         self._policy = FIFOPolicy(mode='packing',
                                   packing_threshold=packing_threshold)

@@ -9,6 +9,7 @@ from policy import Policy, PolicyWithPacking
 class MinTotalDurationPolicy(Policy):
 
     def __init__(self, solver):
+        super().__init__()
         self._name = 'MinTotalDuration'
         self._min_total_duration_perf_policy = \
             MinTotalDurationPolicyWithPerf(solver)

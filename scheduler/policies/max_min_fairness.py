@@ -10,6 +10,7 @@ from proportional import ProportionalPolicy
 class MaxMinFairnessPolicy(Policy): # DEBUG(xlc): 这里是不带数据集中的Throughput的值
 
     def __init__(self, solver):
+        super().__init__()
         self._name = 'MaxMinFairness'
         self._max_min_fairness_perf_policy = \
             MaxMinFairnessPolicyWithPerf(solver)
